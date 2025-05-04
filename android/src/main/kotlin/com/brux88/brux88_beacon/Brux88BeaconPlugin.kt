@@ -27,6 +27,8 @@ import org.altbeacon.beacon.BeaconParser
 import org.altbeacon.beacon.Region
 import org.altbeacon.beacon.RangeNotifier
 import org.altbeacon.beacon.MonitorNotifier
+import org.altbeacon.beacon.startup.RegionBootstrap
+
 import android.Manifest
 
 import com.brux88.brux88_beacon.model.SelectedBeacon
@@ -35,10 +37,12 @@ import com.brux88.brux88_beacon.repository.LogRepository
 import com.brux88.brux88_beacon.service.BeaconMonitoringService
 import com.brux88.brux88_beacon.util.PreferenceUtils
 import com.brux88.brux88_beacon.util.RegionUtils
+import com.brux88.brux88_beacon.util.BeaconBootstrapper
 
-class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier {
+class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier  {
     private val TAG = "Brux88BeaconPlugin"
-    
+    private lateinit var beaconBootstrapper: BeaconBootstrapper
+
     private lateinit var methodChannel: MethodChannel
     private lateinit var beaconsEventChannel: EventChannel
     private lateinit var monitoringEventChannel: EventChannel
@@ -54,7 +58,8 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
     // Event sinks
     private var beaconsSink: EventChannel.EventSink? = null
     private var monitoringSink: EventChannel.EventSink? = null
-    
+    //private var regionBootstrap: RegionBootstrap? = null  // Aggiungi questa variabile
+
     // Regione di monitoraggio attiva
     private lateinit var activeRegion: Region
 
@@ -76,11 +81,13 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         beaconsEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 beaconsSink = events
+                beaconBootstrapper.setEventSink(events)  // Aggiorna il sink nel bootstrapper
                 logRepository.addLog("Beacon event channel attivato")
             }
 
             override fun onCancel(arguments: Any?) {
                 beaconsSink = null
+                beaconBootstrapper.setEventSink(null)  // Rimuovi il sink nel bootstrapper
                 logRepository.addLog("Beacon event channel cancellato")
             }
         })
@@ -227,13 +234,19 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             
             // Configurazione per la distanza
             beaconManager.setMaxTrackingAge(PreferenceUtils.getMaxTrackingAge(context).toInt())
-            
+            val uniqueId = "myUniqueId"
+            val region = Region(uniqueId, null, null, null)
+            activeRegion = region
             // Configurazione notifier per i beacon
             setupBeaconCallbacks()
-            
+            beaconBootstrapper = BeaconBootstrapper(context.applicationContext)
+            beaconBootstrapper.setEventSink(monitoringSink)
+            beaconBootstrapper.startBootstrapping(region)
+
             // Ottieni la regione corretta (specifica o generica)
             activeRegion = RegionUtils.getMonitoringRegion(context)
-            
+            //regionBootstrap = RegionBootstrap(this, activeRegion)
+
             logRepository.addLog("BeaconManager inizializzato con successo")
             result.success(true)
         } catch (e: Exception) {
@@ -257,31 +270,13 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
           result.error("LOGS_ERROR", "Errore nel recupero dei log: ${e.message}", null)
       }
   }
+
+
     private fun setupBeaconCallbacks() {
         // Range notifier per gli aggiornamenti sulle distanze
         beaconManager.addRangeNotifier(this)
-        
-        // Monitor notifier per gli eventi di regione
-        beaconManager.addMonitorNotifier(object : MonitorNotifier {
-            override fun didEnterRegion(region: Region) {
-                logRepository.addLog("ENTRATO nella regione ${region.uniqueId}")
-                Log.d(TAG, "ENTRATO nella regione ${region.uniqueId}")
-                monitoringSink?.success("INSIDE")
-            }
+            // Aggiungi un RangeNotifier separato per debugging
 
-            override fun didExitRegion(region: Region) {
-                logRepository.addLog("USCITO dalla regione ${region.uniqueId}")
-                Log.d(TAG, "USCITO dalla regione ${region.uniqueId}")
-                monitoringSink?.success("OUTSIDE")
-            }
-
-            override fun didDetermineStateForRegion(state: Int, region: Region) {
-                val stateStr = if (state == MonitorNotifier.INSIDE) "INSIDE" else "OUTSIDE"
-                logRepository.addLog("STATO: $stateStr per regione ${region.uniqueId}")
-                Log.d(TAG, "STATO: $stateStr per regione ${region.uniqueId}")
-                monitoringSink?.success(stateStr)
-            }
-        })
     }
 
     // Implementazione di RangeNotifier
@@ -342,7 +337,8 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             
             // Salva lo stato di monitoraggio
             PreferenceUtils.setMonitoringEnabled(context, true)
-            
+            beaconBootstrapper.startBootstrapping(activeRegion)
+
             // Avvia il servizio in foreground
             val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
             try {
@@ -367,19 +363,19 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
     }
 
     // Nel plugin, aggiungi un metodo per verificare e richiedere l'esclusione
-fun checkBatteryOptimization() {
-  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-      val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-      if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
-          // Richiedi all'utente di disattivare l'ottimizzazione della batteria
-          if (activity != null) {
-              val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-              intent.data = Uri.parse("package:${context.packageName}")
-              activity?.startActivity(intent)
+    fun checkBatteryOptimization() {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+          val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+          if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+              // Richiedi all'utente di disattivare l'ottimizzazione della batteria
+              if (activity != null) {
+                  val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                  intent.data = Uri.parse("package:${context.packageName}")
+                  activity?.startActivity(intent)
+              }
           }
       }
-  }
-}
+    }
 
     private fun stopMonitoring(result: Result) {
         try {
@@ -406,7 +402,8 @@ fun checkBatteryOptimization() {
             
             // Aggiorna lo stato di monitoraggio
             PreferenceUtils.setMonitoringEnabled(context, false)
-            
+            beaconBootstrapper.stopBootstrapping()
+
             // Ferma il servizio in foreground
             val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
             context.stopService(serviceIntent)
