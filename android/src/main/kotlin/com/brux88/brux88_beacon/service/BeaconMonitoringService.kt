@@ -31,17 +31,20 @@ class BeaconMonitoringService : Service(), RangeNotifier {
 
     // Implementazione di RangeNotifier
     override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {
-        // Implementazione di base
         if (beacons.isNotEmpty()) {
             val beacon = beacons.first()
-            val logMessage = "Beacon: ID=${beacon.id1}, Distanza=${
-                String.format(
-                    "%.2f",
-                    beacon.distance
-                )
-            }m, RSSI=${beacon.rssi}"
+            val logMessage = "Beacon: ID=${beacon.id1}, Distanza=${String.format("%.2f", beacon.distance)}m, RSSI=${beacon.rssi}"
             Log.d(TAG, logMessage)
             logRepository.addLog(logMessage)
+            
+            // Mostra una notifica con l'UUID del beacon
+            val notification = NotificationUtils.createServiceNotification(
+                this,
+                "Beacon rilevato",
+                "UUID: ${beacon.id1}, Distanza: ${String.format("%.2f", beacon.distance)}m"
+            )
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(FOREGROUND_NOTIFICATION_ID, notification)
         }
     }
 
