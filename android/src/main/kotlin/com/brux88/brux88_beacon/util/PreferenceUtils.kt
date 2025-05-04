@@ -25,6 +25,16 @@ object PreferenceUtils {
     private const val DEFAULT_BACKGROUND_SCAN_PERIOD: Long = 1100
     private const val DEFAULT_BACKGROUND_BETWEEN_SCAN_PERIOD: Long = 5000
     private const val DEFAULT_MAX_TRACKING_AGE: Long = 5000
+    private const val KEY_PENDING_RESTART = "pending_restart"
+
+
+    fun setPendingRestart(context: Context, pending: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_PENDING_RESTART, pending).apply()
+    }
+    
+    fun hasPendingRestart(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_PENDING_RESTART, false)
+    }
 
     /**
      * Ottiene l'istanza delle SharedPreferences

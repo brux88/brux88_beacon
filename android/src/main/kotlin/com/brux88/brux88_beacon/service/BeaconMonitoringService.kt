@@ -90,17 +90,39 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             createNotification("Monitoraggio beacon attivo")
         )
 
-        // Ottieni la regione attiva
-        activeRegion = RegionUtils.ALL_BEACONS_REGION
-
-        // Inizia a monitorare i beacon
-        try {
-            beaconManager.startRangingBeaconsInRegion(activeRegion)
-            logRepository.addLog("Ranging dei beacon avviato per regione: ${activeRegion.uniqueId}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Errore nell'avvio del ranging: ${e.message}")
-            logRepository.addLog("ERRORE: Impossibile avviare il ranging: ${e.message}")
+         // Ottieni la regione attiva (specifica o generica in base alla selezione)
+    activeRegion = if (PreferenceUtils.isSelectedBeaconEnabled(this)) {
+        val selectedBeacon = PreferenceUtils.getSelectedBeacon(this)
+        if (selectedBeacon != null) {
+            RegionUtils.createRegionForBeacon(selectedBeacon)
+        } else {
+            RegionUtils.ALL_BEACONS_REGION
         }
+    } else {
+        RegionUtils.ALL_BEACONS_REGION
+    }
+    // Configura scansione più aggressiva all'avvio
+    beaconManager.foregroundBetweenScanPeriod = 0  // Scansione continua
+    beaconManager.foregroundScanPeriod = 1100      // 1.1 secondi
+    try {
+        // Forza aggiornamento dei periodi di scansione
+        beaconManager.updateScanPeriods()
+                
+        // Riavvia il ranging e il monitoraggio (anche se già attivi)
+       /* try {
+            beaconManager.stopRangingBeaconsInRegion(activeRegion)
+            beaconManager.stopMonitoringBeaconsInRegion(activeRegion)
+        } catch (e: Exception) {
+            // Ignora errori se non erano attivi
+        }*/
+
+        beaconManager.startRangingBeaconsInRegion(activeRegion)
+        beaconManager.startMonitoringBeaconsInRegion(activeRegion)
+        logRepository.addLog("Ranging e monitoraggio avviati nella regione: ${activeRegion.uniqueId}")
+    } catch (e: Exception) {
+        Log.e(TAG, "Errore nell'avvio del ranging: ${e.message}")
+        logRepository.addLog("ERRORE: Impossibile avviare il ranging: ${e.message}")
+    }
 
         // Aggiungi un monitor notifier direttamente nel servizio
         beaconManager.addMonitorNotifier(object : MonitorNotifier {
@@ -130,8 +152,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             }
         })
 
-        // Avvia il monitoraggio delle regioni
-        beaconManager.startMonitoringBeaconsInRegion(activeRegion)
+       
 
         // Se il servizio viene terminato dal sistema, verrà riavviato
         return START_STICKY

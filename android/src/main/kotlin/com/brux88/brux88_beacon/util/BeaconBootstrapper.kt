@@ -1,7 +1,10 @@
 package com.brux88.brux88_beacon.util
+
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import io.flutter.plugin.common.EventChannel
 import org.altbeacon.beacon.BeaconManager
@@ -10,15 +13,15 @@ import org.altbeacon.beacon.Region
 import org.altbeacon.beacon.startup.BootstrapNotifier
 import org.altbeacon.beacon.startup.RegionBootstrap
 import com.brux88.brux88_beacon.service.BeaconMonitoringService
-import java.util.ArrayList
-import android.os.Handler
-import android.os.Looper
+import com.brux88.brux88_beacon.repository.LogRepository
 
 class BeaconBootstrapper(private val applicationContext: Context) : BootstrapNotifier {
+    private val TAG = "BeaconBootstrapper" // Definisci TAG
     private var regionBootstrap: RegionBootstrap? = null
     private val beaconManager = BeaconManager.getInstanceForApplication(applicationContext)
     private var monitoringSink: EventChannel.EventSink? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val logRepository = LogRepository(applicationContext) // Inizializza logRepository
 
     fun setEventSink(sink: EventChannel.EventSink?) {
         this.monitoringSink = sink
@@ -27,14 +30,16 @@ class BeaconBootstrapper(private val applicationContext: Context) : BootstrapNot
     fun startBootstrapping(region: Region) {
         stopBootstrapping()
         regionBootstrap = RegionBootstrap(this, region)
-        Log.d("BEACON_DEBUG", "Bootstrap avviato per regione: ${region.uniqueId}")
+        Log.d(TAG, "Bootstrap avviato per regione: ${region.uniqueId}")
+        logRepository.addLog("Bootstrap avviato per regione: ${region.uniqueId}")
     }
 
     fun stopBootstrapping() {
         if (regionBootstrap != null) {
             regionBootstrap?.disable()
             regionBootstrap = null
-            Log.d("BEACON_DEBUG", "Bootstrap fermato")
+            Log.d(TAG, "Bootstrap fermato")
+            logRepository.addLog("Bootstrap fermato")
         }
     }
 
@@ -43,7 +48,8 @@ class BeaconBootstrapper(private val applicationContext: Context) : BootstrapNot
     }
 
     override fun didEnterRegion(region: Region) {
-        Log.d("BEACON_DEBUG", "ENTRATO nella regione ${region.uniqueId}")
+        Log.d(TAG, "ENTRATO nella regione ${region.uniqueId}")
+        logRepository.addLog("ENTRATO nella regione ${region.uniqueId}")
 
         // Esegui su thread UI
         mainHandler.post {
@@ -58,13 +64,16 @@ class BeaconBootstrapper(private val applicationContext: Context) : BootstrapNot
             } else {
                 applicationContext.startService(serviceIntent)
             }
+            logRepository.addLog("Servizio avviato dopo rilevamento beacon")
         } catch (e: Exception) {
-            Log.e("BEACON_DEBUG", "Errore nell'avvio del servizio: ${e.message}")
+            Log.e(TAG, "Errore nell'avvio del servizio: ${e.message}")
+            logRepository.addLog("ERRORE nell'avvio del servizio: ${e.message}")
         }
     }
 
     override fun didExitRegion(region: Region) {
-        Log.d("BEACON_DEBUG", "USCITO dalla regione ${region.uniqueId}")
+        Log.d(TAG, "USCITO dalla regione ${region.uniqueId}")
+        logRepository.addLog("USCITO dalla regione ${region.uniqueId}")
 
         // Esegui su thread UI
         mainHandler.post {
@@ -74,7 +83,8 @@ class BeaconBootstrapper(private val applicationContext: Context) : BootstrapNot
 
     override fun didDetermineStateForRegion(state: Int, region: Region) {
         val stateStr = if (state == MonitorNotifier.INSIDE) "INSIDE" else "OUTSIDE"
-        Log.d("BEACON_DEBUG", "STATO regione: $stateStr")
+        Log.d(TAG, "STATO regione: $stateStr")
+        logRepository.addLog("STATO regione: $stateStr")
 
         // Esegui su thread UI
         mainHandler.post {

@@ -1,5 +1,6 @@
 // lib/src/beacon_manager.dart
 import 'dart:async';
+import 'package:brux88_beacon/brux88_beacon.dart';
 import 'package:flutter/services.dart';
 import 'models/beacon.dart';
 import 'models/beacon_region.dart';
@@ -53,17 +54,45 @@ class BeaconManager {
 
   void _setupEventChannels() {
     _beaconsEventChannel.receiveBroadcastStream().listen((dynamic event) {
-      final beaconsList = (event as List<dynamic>)
-          .map((e) => Beacon.fromMap(e as Map<dynamic, dynamic>))
-          .toList();
-      _beaconsController.add(beaconsList);
+      // Verifica che event sia effettivamente una List
+      if (event is List) {
+        final beaconsList = event
+            .map((e) => Beacon.fromMap(e as Map<dynamic, dynamic>))
+            .toList();
+        _beaconsController.add(beaconsList);
+      } else if (event is String) {
+        // Se è una stringa (errore o messaggio di debug), registralo
+        print('Received string message from beacon channel: $event');
+        // Eventualmente, puoi anche inviare una lista vuota
+        _beaconsController.add([]);
+      } else if (event is Map) {
+        // Se è un singolo beacon (mappa invece di lista di mappe)
+        try {
+          final beacon = Beacon.fromMap(event as Map<dynamic, dynamic>);
+          _beaconsController.add([beacon]);
+        } catch (e) {
+          print('Error parsing single beacon: $e');
+          _beaconsController.add([]);
+        }
+      } else {
+        // In caso di altri tipi, invia lista vuota
+        print(
+            'Unexpected event type from beacon channel: ${event.runtimeType}');
+        _beaconsController.add([]);
+      }
     }, onError: (dynamic error) {
       print('Error from beacons stream: $error');
+      _beaconsController.add([]);
     });
 
     _monitoringEventChannel.receiveBroadcastStream().listen((dynamic event) {
-      final state = _parseMonitoringState(event as String);
-      _monitoringController.add(state);
+      // Anche qui, verifica il tipo
+      if (event is String) {
+        final state = _parseMonitoringState(event);
+        _monitoringController.add(state);
+      } else {
+        print('Unexpected monitoring event type: ${event.runtimeType}');
+      }
     }, onError: (dynamic error) {
       print('Error from monitoring stream: $error');
     });
@@ -80,10 +109,30 @@ class BeaconManager {
     }
   }
 
+  /// Setup a recurring alarm to restart the beacon monitoring service periodically
+  Future<bool> setupRecurringAlarm() async {
+    return await _methodChannel.invokeMethod<bool>('setupRecurringAlarm') ??
+        false;
+  }
+
+  /// Cancel the recurring alarm
+  Future<bool> cancelRecurringAlarm() async {
+    return await _methodChannel.invokeMethod<bool>('cancelRecurringAlarm') ??
+        false;
+  }
+
   /// Start monitoring for beacons
   Future<bool> startMonitoring() async {
     if (!_isInitialized) await initialize();
     return await _methodChannel.invokeMethod<bool>('startMonitoring') ?? false;
+  }
+
+  Future<SelectedBeacon?> getSelectedBeacon() async {
+    final resultMap = await _methodChannel
+        .invokeMethod<Map<dynamic, dynamic>>('getSelectedBeacon');
+    if (resultMap == null) return null;
+
+    return SelectedBeacon.fromMap(resultMap);
   }
 
   /// Stop monitoring for beacons

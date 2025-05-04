@@ -30,6 +30,8 @@ import org.altbeacon.beacon.MonitorNotifier
 import org.altbeacon.beacon.startup.RegionBootstrap
 
 import android.Manifest
+import android.app.AlarmManager
+import android.app.PendingIntent
 
 import com.brux88.brux88_beacon.model.SelectedBeacon
 import com.brux88.brux88_beacon.repository.BeaconRepository
@@ -172,6 +174,15 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 "enableDebugMode" -> {
                     enableDebugMode(result)
                 }
+                "getSelectedBeacon" -> {
+                    getSelectedBeacon(result)
+                }
+                "setupRecurringAlarm" -> {
+                    setupRecurringAlarm(result)
+                }
+                "cancelRecurringAlarm" -> {
+                    cancelRecurringAlarm(result)
+                }
                 "getLogs" -> {
                   getLogs(result)
                 }
@@ -186,6 +197,93 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         }
     }
 
+    private fun setupRecurringAlarm(result: Result) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, BeaconMonitoringService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+    
+            // Intervallo di 15 minuti
+            val interval = 15 * 60 * 1000L
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            }
+            
+            logRepository.addLog("Allarme impostato per il riavvio periodico del servizio")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella configurazione dell'allarme: ${e.message}", e)
+            logRepository.addLog("ERRORE nella configurazione dell'allarme: ${e.message}")
+            result.error("ALARM_ERROR", "Errore nella configurazione dell'allarme: ${e.message}", null)
+        }
+    }
+    
+    // Aggiungi anche la cancellazione dell'allarme
+    private fun cancelRecurringAlarm(result: Result) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, BeaconMonitoringService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+    
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            
+            logRepository.addLog("Allarme per il riavvio del servizio cancellato")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella cancellazione dell'allarme: ${e.message}", e)
+            logRepository.addLog("ERRORE nella cancellazione dell'allarme: ${e.message}")
+            result.error("ALARM_CANCEL_ERROR", "Errore nella cancellazione dell'allarme: ${e.message}", null)
+        }
+    }
+
+    private fun getSelectedBeacon(result: Result) {
+        try {
+          val selectedBeacon = PreferenceUtils.getSelectedBeacon(context)
+          if (selectedBeacon != null) {
+            val beaconMap = HashMap<String, Any?>()
+            beaconMap["uuid"] = selectedBeacon.uuid
+            beaconMap["major"] = selectedBeacon.major
+            beaconMap["minor"] = selectedBeacon.minor
+            beaconMap["name"] = selectedBeacon.name
+            beaconMap["enabled"] = PreferenceUtils.isSelectedBeaconEnabled(context)
+            
+            Log.d(TAG, "Beacon selezionato: $beaconMap")
+            logRepository.addLog("Ottenuto beacon selezionato: ${selectedBeacon.uuid}")
+            
+            result.success(beaconMap)
+          } else {
+            Log.d(TAG, "Nessun beacon selezionato")
+            logRepository.addLog("Nessun beacon selezionato trovato")
+            result.success(null)
+          }
+        } catch (e: Exception) {
+          Log.e(TAG, "Errore nel recupero del beacon selezionato: ${e.message}", e)
+          logRepository.addLog("ERRORE nel recupero del beacon selezionato: ${e.message}")
+          result.error("GET_SELECTED_BEACON_ERROR", "Errore nel recupero del beacon selezionato: ${e.message}", null)
+        }
+      }
     private fun initialize(result: Result) {
         try {
             Log.d(TAG, "Inizializzazione BeaconManager")
@@ -312,7 +410,34 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         try {
             Log.d(TAG, "Avvio monitoraggio beacon")
             logRepository.addLog("Avvio monitoraggio beacon")
-            
+                    // Impostare l'allarme per il riavvio periodico
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, BeaconMonitoringService::class.java)
+        val pendingIntent = PendingIntent.getService(
+            context,
+            0,
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
+
+        // Intervallo di 15 minuti
+        val interval = 15 * 60 * 1000L
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + interval,
+                pendingIntent
+            )
+        } else {
+            alarmManager.setExact(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + interval,
+                pendingIntent
+            )
+        }
+        
+        logRepository.addLog("Allarme impostato per il riavvio periodico del servizio")
             // Verifica se abbiamo un beacon selezionato
             val selectedBeacon = PreferenceUtils.getSelectedBeacon(context)
             val region = if (selectedBeacon != null && PreferenceUtils.isSelectedBeaconEnabled(context)) {
@@ -381,7 +506,20 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         try {
             Log.d(TAG, "Arresto monitoraggio beacon")
             logRepository.addLog("Arresto monitoraggio beacon")
-            
+             // Cancellare l'allarme per il riavvio periodico
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, BeaconMonitoringService::class.java)
+        val pendingIntent = PendingIntent.getService(
+            context,
+            0,
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
+
+        alarmManager.cancel(pendingIntent)
+        pendingIntent.cancel()
+        
+        logRepository.addLog("Allarme per il riavvio del servizio cancellato")
             // Ferma il ranging e il monitoraggio
             if (::activeRegion.isInitialized) {
                 beaconManager.stopRangingBeaconsInRegion(activeRegion)
