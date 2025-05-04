@@ -109,7 +109,26 @@ class LogRepository(private val context: Context) {
             Log.e(TAG, "Errore nella rimozione del log più vecchio: ${e.message}")
         }
     }
-
+    fun getCurrentLogs(): List<String> {
+        val logList = mutableListOf<String>()
+        
+        try {
+            val logCount = sharedPrefs.getInt(LOG_COUNT_KEY, 0)
+            
+            for (i in 0 until logCount) {
+                val logEntry = sharedPrefs.getString("$LOG_KEY_PREFIX$i", null)
+                if (logEntry != null) {
+                    logList.add(logEntry)
+                }
+            }
+            
+            // Restituisci i log dal più recente al più vecchio
+            return logList.reversed()
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel recupero dei log: ${e.message}")
+            return emptyList()
+        }
+    }
     /**
      * Cancella tutti i log
      */

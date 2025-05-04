@@ -69,7 +69,7 @@ dependencies {
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     
     // AltBeacon Library (necessaria per il rilevamento beacon)
-    implementation 'org.altbeacon:android-beacon-library:2.19.5'
+    api 'org.altbeacon:android-beacon-library:2.19.5'
     
     // Librerie Android core
     implementation 'androidx.core:core-ktx:1.10.1'

@@ -74,7 +74,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
 
         logRepository.addLog("Servizio beacon creato")
     }
-
+ 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "Service onStartCommand")
 

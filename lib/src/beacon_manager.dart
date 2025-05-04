@@ -106,6 +106,23 @@ class BeaconManager {
         false;
   }
 
+  /// Ottiene i log dal repository
+  Future<List<String>> getLogs() async {
+    try {
+      final List<dynamic> logs =
+          await _methodChannel.invokeMethod('getLogs') ?? [];
+      return logs.map((log) => log.toString()).toList();
+    } catch (e) {
+      print('Errore nel recupero dei log: $e');
+      return [];
+    }
+  }
+
+  /// Abilita la modalità debug per più log
+  Future<bool> enableDebugMode() async {
+    return await _methodChannel.invokeMethod<bool>('enableDebugMode') ?? false;
+  }
+
   /// Get all currently monitored regions
   Future<List<BeaconRegion>> getMonitoredRegions() async {
     final regionsMap =

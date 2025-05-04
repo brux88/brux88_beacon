@@ -31,20 +31,27 @@ class BeaconRepository(private val context: Context) {
     /**
      * Aggiorna la lista dei beacon rilevati
      */
+
     fun updateBeacons(beacons: Collection<Beacon>, region: Region) {
         executor.execute {
             try {
                 _detectedBeacons.clear()
                 _detectedBeacons.addAll(beacons)
                 _beaconsLiveData.postValue(_detectedBeacons.toList())
-
+    
                 Log.d(TAG, "Beacons aggiornati, ${beacons.size} trovati nella regione ${region.uniqueId}")
+                
+                // Log dettagliato per ogni beacon
+                beacons.forEach { beacon ->
+                    Log.d(TAG, "Beacon: ID=${beacon.id1}, Major=${beacon.id2}, Minor=${beacon.id3}, " +
+                            "Distanza=${String.format("%.2f", beacon.distance)}m, RSSI=${beacon.rssi}, " +
+                            "TxPower=${beacon.txPower}")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Errore nell'aggiornamento dei beacon: ${e.message}")
             }
         }
     }
-
     /**
      * Restituisce un beacon specifico in base all'identificatore
      */
