@@ -35,9 +35,22 @@ class BeaconManager {
 
   /// Initialize the beacon manager
   Future<bool> initialize() async {
-    if (_isInitialized) return true;
-
     try {
+      // Se è già inizializzato, non facciamo nulla
+      if (_isInitialized) return true;
+
+      // Imposta il flag di monitoraggio a false nelle preferenze
+      // senza cercare di fermare il monitoraggio attivo
+      try {
+        // Imposta direttamente il flag di monitoraggio a false
+        await _methodChannel.invokeMethod('setMonitoringEnabled', false);
+        print('Set monitoring flag to false before initialization');
+      } catch (e) {
+        print('Error setting monitoring flag: $e');
+        // Continua comunque con l'inizializzazione
+      }
+
+      // Ora proviamo a inizializzare
       final result =
           await _methodChannel.invokeMethod<bool>('initialize') ?? false;
 
@@ -190,6 +203,16 @@ class BeaconManager {
             map['notifyEntryStateOnDisplay'] as bool? ?? false,
       );
     }).toList();
+  }
+
+  /// Verifica se il BeaconManager è inizializzato
+  Future<bool> isInitialized() async {
+    try {
+      return await _methodChannel.invokeMethod<bool>('isInitialized') ?? false;
+    } catch (e) {
+      print('Errore nella verifica dell\'inizializzazione: $e');
+      return false;
+    }
   }
 
   /// Richiede il permesso per impostare allarmi esatti (necessario per Android 12+)

@@ -43,7 +43,8 @@ import com.brux88.brux88_beacon.util.BeaconBootstrapper
 
 class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier  {
     private val TAG = "Brux88BeaconPlugin"
-    private lateinit var beaconBootstrapper: BeaconBootstrapper
+    private var beaconBootstrapper: BeaconBootstrapper? = null
+
 
     private lateinit var methodChannel: MethodChannel
     private lateinit var beaconsEventChannel: EventChannel
@@ -83,13 +84,13 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         beaconsEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 beaconsSink = events
-                beaconBootstrapper.setEventSink(events)  // Aggiorna il sink nel bootstrapper
+                beaconBootstrapper?.setEventSink(events)  // Aggiorna il sink nel bootstrapper
                 logRepository.addLog("Beacon event channel attivato")
             }
 
             override fun onCancel(arguments: Any?) {
                 beaconsSink = null
-                beaconBootstrapper.setEventSink(null)  // Rimuovi il sink nel bootstrapper
+                beaconBootstrapper?.setEventSink(null)  // Rimuovi il sink nel bootstrapper
                 logRepository.addLog("Beacon event channel cancellato")
             }
         })
@@ -189,6 +190,14 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 "requestExactAlarmPermission" -> {
                     requestExactAlarmPermission(result)
                 }
+                "isInitialized" -> {
+                    isInitialized(result)
+                }
+                "setMonitoringEnabled" -> {
+                    val enabled = call.arguments as Boolean
+                    PreferenceUtils.setMonitoringEnabled(context, enabled)
+                    result.success(true)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -199,7 +208,36 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             result.error("INTERNAL_ERROR", "Si è verificato un errore interno: ${e.message}", null)
         }
     }
+    private fun isInitialized(result: Result) {
+        try {
+          // Verifica se il BeaconManager è inizializzato
+          val isInitialized = ::beaconManager.isInitialized
+          
+          // Verifica aggiuntiva per assicurarsi che sia correttamente configurato
+          var isConfigured = false
+          if (isInitialized) {
+            try {
+              // Verifica se è possibile accedere alle proprietà del BeaconManager
+              val testAccess = beaconManager.foregroundScanPeriod
+              isConfigured = true
+            } catch (e: Exception) {
+              isConfigured = false
+            }
+          }
+          val bootstrapperInitialized = beaconBootstrapper != null
 
+          val initializedStatus = isInitialized && isConfigured
+          
+          Log.d(TAG, "Controllo inizializzazione BeaconManager: $initializedStatus")
+          logRepository.addLog("Controllo inizializzazione BeaconManager: $initializedStatus")
+          
+          result.success(initializedStatus)
+        } catch (e: Exception) {
+          Log.e(TAG, "Errore nella verifica dell'inizializzazione: ${e.message}", e)
+          logRepository.addLog("ERRORE nella verifica dell'inizializzazione: ${e.message}")
+          result.error("INIT_CHECK_ERROR", "Errore nella verifica dell'inizializzazione: ${e.message}", null)
+        }
+      }
     private fun setupRecurringAlarm(result: Result) {
         try {
             // Verifica il permesso per Android 12+
@@ -300,12 +338,66 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
           result.error("GET_SELECTED_BEACON_ERROR", "Errore nel recupero del beacon selezionato: ${e.message}", null)
         }
       }
-    private fun initialize(result: Result) {
+      private fun initialize(result: Result) {
         try {
             Log.d(TAG, "Inizializzazione BeaconManager")
             logRepository.addLog("Inizializzazione BeaconManager")
             
-            // Inizializza BeaconManager
+            // Ferma tutte le attività BeaconManager in corso
+            try {
+                if (::beaconManager.isInitialized) {
+                    Log.d(TAG, "Tentativo di rilascio dell'istanza precedente del BeaconManager")
+                    logRepository.addLog("Tentativo di rilascio dell'istanza precedente del BeaconManager")
+                    
+                    // Ferma tutti i monitoring
+                    for (region in ArrayList(beaconManager.monitoredRegions)) {
+                        try {
+                            beaconManager.stopMonitoringBeaconsInRegion(region)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Errore nell'arresto del monitoring per ${region.uniqueId}: ${e.message}")
+                        }
+                    }
+                    
+                    // Ferma tutti i ranging
+                    for (region in ArrayList(beaconManager.rangedRegions)) {
+                        try {
+                            beaconManager.stopRangingBeaconsInRegion(region)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Errore nell'arresto del ranging per ${region.uniqueId}: ${e.message}")
+                        }
+                    }
+                    
+                    // Rimuovi tutti i notifier
+                    try {
+                        beaconManager.removeAllMonitorNotifiers()
+                        beaconManager.removeAllRangeNotifiers()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Errore nella rimozione dei notifier: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore nel fermare le attività BeaconManager precedenti: ${e.message}")
+                logRepository.addLog("ERRORE nel fermare le attività BeaconManager precedenti: ${e.message}")
+                // Continua comunque con l'inizializzazione
+            }
+            
+            // Dormi brevemente per dare tempo al sistema di rilasciare le risorse
+            Thread.sleep(100)
+            
+            // Forza il rilascio dell'istanza precedente di BeaconManager
+            if (::beaconManager.isInitialized) {
+                try {
+                    // Usa reflection per accedere al metodo di pulizia delle istanze
+                    val cleanupMethod = BeaconManager::class.java.getDeclaredMethod("cleanupInstances")
+                    cleanupMethod.isAccessible = true
+                    cleanupMethod.invoke(null)
+                    Log.d(TAG, "Cleanup istanze BeaconManager eseguito con successo")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Errore nel cleanup delle istanze BeaconManager: ${e.message}")
+                }
+            }
+            
+            // Inizializza una nuova istanza di BeaconManager
             beaconManager = BeaconManager.getInstanceForApplication(context)
             
             // Abilita debug per più log
@@ -321,17 +413,17 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             beaconManager.beaconParsers.add(
                 BeaconParser().setBeaconLayout("m:0-3=4c000215,i:4-19,i:20-21,i:22-23,p:24-24")
             )
-
+    
             // AltBeacon
             beaconManager.beaconParsers.add(
                 BeaconParser().setBeaconLayout("m:2-3=beac,i:4-19,i:20-21,i:22-23,p:24-24,d:25-25")
             )
-
+    
             // Eddystone-UID
             beaconManager.beaconParsers.add(
                 BeaconParser().setBeaconLayout("s:0-1=feaa,m:2-2=00,p:3-3:-41,i:4-13,i:14-19")
             )
-
+    
             // Eddystone-URL
             beaconManager.beaconParsers.add(
                 BeaconParser().setBeaconLayout("s:0-1=feaa,m:2-2=10,p:3-3:-41,i:4-20v")
@@ -341,26 +433,32 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             beaconManager.setEnableScheduledScanJobs(false)
             beaconManager.backgroundBetweenScanPeriod = PreferenceUtils.getBackgroundBetweenScanPeriod(context)
             beaconManager.backgroundScanPeriod = PreferenceUtils.getBackgroundScanPeriod(context)
-
+    
             // Configurazione per rilevamento rapido in primo piano
             beaconManager.foregroundBetweenScanPeriod = 0   // Scansione continua
             beaconManager.foregroundScanPeriod = 1100       // 1.1 secondi di scansione
             
             // Configurazione per la distanza
             beaconManager.setMaxTrackingAge(PreferenceUtils.getMaxTrackingAge(context).toInt())
+            
+            // Imposta la flag di monitoraggio a false per sicurezza
+            PreferenceUtils.setMonitoringEnabled(context, false)
+            
             val uniqueId = "myUniqueId"
             val region = Region(uniqueId, null, null, null)
             activeRegion = region
+            
             // Configurazione notifier per i beacon
             setupBeaconCallbacks()
+            
+            // Inizializza il BeaconBootstrapper
             beaconBootstrapper = BeaconBootstrapper(context.applicationContext)
-            beaconBootstrapper.setEventSink(monitoringSink)
-            beaconBootstrapper.startBootstrapping(region)
-
+            beaconBootstrapper?.setEventSink(monitoringSink)
+            beaconBootstrapper?.startBootstrapping(region)
+    
             // Ottieni la regione corretta (specifica o generica)
             activeRegion = RegionUtils.getMonitoringRegion(context)
-            //regionBootstrap = RegionBootstrap(this, activeRegion)
-
+    
             logRepository.addLog("BeaconManager inizializzato con successo")
             result.success(true)
         } catch (e: Exception) {
@@ -478,7 +576,7 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             
             // Salva lo stato di monitoraggio
             PreferenceUtils.setMonitoringEnabled(context, true)
-            beaconBootstrapper.startBootstrapping(activeRegion)
+            beaconBootstrapper?.startBootstrapping(activeRegion)
 
             // Avvia il servizio in foreground
             val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
@@ -556,7 +654,7 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             
             // Aggiorna lo stato di monitoraggio
             PreferenceUtils.setMonitoringEnabled(context, false)
-            beaconBootstrapper.stopBootstrapping()
+            beaconBootstrapper?.stopBootstrapping()
 
             // Ferma il servizio in foreground
             val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
