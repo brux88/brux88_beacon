@@ -829,62 +829,61 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
   }
 
   private fun checkPermissions(result: Result) {
-      try {
-          val permissionsMap = mutableMapOf<String, Boolean>()
-          
-          // Controlla i permessi di localizzazione
-          permissionsMap["location"] = ContextCompat.checkSelfPermission(
-              context, 
-              Manifest.permission.ACCESS_FINE_LOCATION
-          ) == PackageManager.PERMISSION_GRANTED
-          
-          // Controlla i permessi Bluetooth per Android 12+
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-              permissionsMap["bluetoothScan"] = ContextCompat.checkSelfPermission(
-                  context, 
-                  Manifest.permission.BLUETOOTH_SCAN
-              ) == PackageManager.PERMISSION_GRANTED
-              
-              permissionsMap["bluetoothConnect"] = ContextCompat.checkSelfPermission(
-                  context, 
-                  Manifest.permission.BLUETOOTH_CONNECT
-              ) == PackageManager.PERMISSION_GRANTED
-          } else {
-              permissionsMap["bluetoothScan"] = true
-              permissionsMap["bluetoothConnect"] = true
-          }
-          
-          // Controlla i permessi di notifica per Android 13+
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-              permissionsMap["notifications"] = ContextCompat.checkSelfPermission(
-                  context, 
-                  Manifest.permission.POST_NOTIFICATIONS
-              ) == PackageManager.PERMISSION_GRANTED
-          } else {
-              permissionsMap["notifications"] = true
-          }
-          
-          // Controlla il permesso di localizzazione in background per Android 10+
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-              permissionsMap["backgroundLocation"] = ContextCompat.checkSelfPermission(
-                  context, 
-                  Manifest.permission.ACCESS_BACKGROUND_LOCATION
-              ) == PackageManager.PERMISSION_GRANTED
-          } else {
-              permissionsMap["backgroundLocation"] = true
-          }
-          
-          Log.d(TAG, "Stato permessi: $permissionsMap")
-          logRepository.addLog("Stato permessi: $permissionsMap")
-          
-          result.success(permissionsMap)
-      } catch (e: Exception) {
-          Log.e(TAG, "Errore nel controllo dei permessi: ${e.message}", e)
-          logRepository.addLog("ERRORE nel controllo dei permessi: ${e.message}")
-          result.error("PERMISSIONS_ERROR", "Errore nel controllo dei permessi: ${e.message}", null)
-      }
-  }
-
+    try {
+        val permissionsMap = mutableMapOf<String, Boolean>()
+        
+        // Controlla i permessi di localizzazione
+        permissionsMap["location"] = ContextCompat.checkSelfPermission(
+            context, 
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        // Controlla i permessi Bluetooth per Android 12+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissionsMap["bluetoothScan"] = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.BLUETOOTH_SCAN
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            permissionsMap["bluetoothConnect"] = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            permissionsMap["bluetoothScan"] = true
+            permissionsMap["bluetoothConnect"] = true
+        }
+        
+        // Controlla i permessi di notifica per Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionsMap["notifications"] = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            permissionsMap["notifications"] = true
+        }
+        
+        // Controlla il permesso di localizzazione in background per Android 10+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissionsMap["backgroundLocation"] = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            permissionsMap["backgroundLocation"] = true
+        }
+        
+        Log.d(TAG, "Stato permessi: $permissionsMap")
+        logRepository.addLog("Stato permessi: $permissionsMap")
+        
+        result.success(permissionsMap)
+    } catch (e: Exception) {
+        Log.e(TAG, "Errore nel controllo dei permessi: ${e.message}", e)
+        logRepository.addLog("ERRORE nel controllo dei permessi: ${e.message}")
+        result.error("PERMISSIONS_ERROR", "Errore nel controllo dei permessi: ${e.message}", null)
+    }
+}
   private fun requestPermissions(result: Result) {
       if (activity != null) {
           try {
