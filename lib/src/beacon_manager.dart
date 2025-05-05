@@ -1,5 +1,6 @@
 // lib/src/beacon_manager.dart
 import 'dart:async';
+import 'dart:io';
 import 'package:brux88_beacon/brux88_beacon.dart';
 import 'package:flutter/services.dart';
 import 'models/beacon.dart';
@@ -189,6 +190,16 @@ class BeaconManager {
             map['notifyEntryStateOnDisplay'] as bool? ?? false,
       );
     }).toList();
+  }
+
+  /// Richiede il permesso per impostare allarmi esatti (necessario per Android 12+)
+  Future<bool> requestExactAlarmPermission() async {
+    if (Platform.isAndroid) {
+      return await _methodChannel
+              .invokeMethod<bool>('requestExactAlarmPermission') ??
+          false;
+    }
+    return true; // Su iOS non è necessario
   }
 
   /// Set a specific beacon to monitor

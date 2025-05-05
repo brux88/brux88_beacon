@@ -186,6 +186,9 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 "getLogs" -> {
                   getLogs(result)
                 }
+                "requestExactAlarmPermission" -> {
+                    requestExactAlarmPermission(result)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -199,6 +202,19 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
 
     private fun setupRecurringAlarm(result: Result) {
         try {
+            // Verifica il permesso per Android 12+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                if (!alarmManager.canScheduleExactAlarms()) {
+                    result.error(
+                        "ALARM_PERMISSION_ERROR",
+                        "Manca il permesso SCHEDULE_EXACT_ALARM. Utilizzare requestExactAlarmPermission() prima di chiamare questo metodo.",
+                        null
+                    )
+                    return
+                }
+            }
+    
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, BeaconMonitoringService::class.java)
             val pendingIntent = PendingIntent.getService(
@@ -884,6 +900,37 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         result.error("PERMISSIONS_ERROR", "Errore nel controllo dei permessi: ${e.message}", null)
     }
 }
+
+private fun requestExactAlarmPermission(result: Result) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (!alarmManager.canScheduleExactAlarms()) {
+                if (activity != null) {
+                    val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                    intent.data = Uri.parse("package:" + context.packageName)
+                    activity?.startActivity(intent)
+                    logRepository.addLog("Richiesto permesso per allarmi esatti")
+                    result.success(true)
+                } else {
+                    logRepository.addLog("Activity non disponibile per richiesta permesso allarmi")
+                    result.error("ACTIVITY_NULL", "Activity necessaria per richiedere permesso allarmi", null)
+                }
+            } else {
+                logRepository.addLog("Permesso allarmi esatti già concesso")
+                result.success(true)
+            }
+        } else {
+            // Per versioni precedenti di Android, il permesso è automaticamente concesso
+            result.success(true)
+        }
+    } catch (e: Exception) {
+        Log.e(TAG, "Errore nella richiesta del permesso allarmi: ${e.message}", e)
+        logRepository.addLog("ERRORE: ${e.message}")
+        result.error("ALARM_PERMISSION_ERROR", "Errore nella richiesta del permesso allarmi: ${e.message}", null)
+    }
+}
+
   private fun requestPermissions(result: Result) {
       if (activity != null) {
           try {
