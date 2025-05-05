@@ -45,5 +45,19 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </receiver>
+                <!-- Aggiungi il nuovo receiver per il Bluetooth -->
+        <receiver
+            android:name=".service.BluetoothStateReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.bluetooth.adapter.action.STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".service.ServiceWatchdogReceiver"
+            android:enabled="true"
+            android:exported="false">
+        </receiver>
     </application>
 </manifest>

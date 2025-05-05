@@ -37,10 +37,13 @@ import com.brux88.brux88_beacon.model.SelectedBeacon
 import com.brux88.brux88_beacon.repository.BeaconRepository
 import com.brux88.brux88_beacon.repository.LogRepository
 import com.brux88.brux88_beacon.service.BeaconMonitoringService
+import com.brux88.brux88_beacon.service.BluetoothStateReceiver
+import com.brux88.brux88_beacon.service.ServiceWatchdogReceiver
 import com.brux88.brux88_beacon.util.PreferenceUtils
 import com.brux88.brux88_beacon.util.RegionUtils
 import com.brux88.brux88_beacon.util.BeaconBootstrapper
-
+import android.content.IntentFilter
+import android.bluetooth.BluetoothAdapter
 class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier  {
     private val TAG = "Brux88BeaconPlugin"
     private var beaconBootstrapper: BeaconBootstrapper? = null
@@ -458,7 +461,41 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
     
             // Ottieni la regione corretta (specifica o generica)
             activeRegion = RegionUtils.getMonitoringRegion(context)
-    
+            // Registra il receiver per il Bluetooth se non è già registrato
+            try {
+                val bluetoothReceiver = BluetoothStateReceiver()
+                val intentFilter = IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED)
+                context.applicationContext.registerReceiver(bluetoothReceiver, intentFilter)
+                logRepository.addLog("Receiver Bluetooth registrato")
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore nella registrazione del receiver Bluetooth: ${e.message}")
+                logRepository.addLog("ERRORE nella registrazione del receiver Bluetooth: ${e.message}")
+                // Continua comunque
+            }
+            
+            // Verifica se c'è un riavvio pendente
+            if (PreferenceUtils.hasPendingRestart(context) && PreferenceUtils.isMonitoringEnabled(context)) {
+                Log.d(TAG, "Riavvio pendente rilevato, pianificazione avvio servizio")
+                logRepository.addLog("Riavvio pendente rilevato durante inizializzazione")
+                
+                // Verifica lo stato del Bluetooth
+                val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+                if (bluetoothAdapter != null && bluetoothAdapter.isEnabled) {
+                    try {
+                        val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            context.startForegroundService(serviceIntent)
+                        } else {
+                            context.startService(serviceIntent)
+                        }
+                        logRepository.addLog("Servizio avviato per riavvio pendente")
+                        PreferenceUtils.setPendingRestart(context, false)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Errore nell'avvio del servizio per riavvio pendente: ${e.message}")
+                        logRepository.addLog("ERRORE nell'avvio del servizio per riavvio pendente: ${e.message}")
+                    }
+                }
+            }
             logRepository.addLog("BeaconManager inizializzato con successo")
             result.success(true)
         } catch (e: Exception) {
@@ -482,7 +519,42 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
           result.error("LOGS_ERROR", "Errore nel recupero dei log: ${e.message}", null)
       }
   }
+  private fun setupServiceWatchdog(result: Result) {
+    try {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, ServiceWatchdogReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+        )
 
+        // Controlla ogni 30 minuti
+        val interval = 30 * 60 * 1000L
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + interval,
+                pendingIntent
+            )
+        } else {
+            alarmManager.setExact(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + interval,
+                pendingIntent
+            )
+        }
+        
+        logRepository.addLog("Watchdog per il servizio configurato")
+        result.success(true)
+    } catch (e: Exception) {
+        Log.e(TAG, "Errore nella configurazione del watchdog: ${e.message}", e)
+        logRepository.addLog("ERRORE nella configurazione del watchdog: ${e.message}")
+        result.error("WATCHDOG_ERROR", "Errore nella configurazione del watchdog: ${e.message}", null)
+    }
+}
 
     private fun setupBeaconCallbacks() {
         // Range notifier per gli aggiornamenti sulle distanze

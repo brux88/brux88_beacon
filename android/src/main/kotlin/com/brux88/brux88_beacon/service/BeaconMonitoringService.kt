@@ -22,13 +22,34 @@ import com.brux88.brux88_beacon.repository.LogRepository
 import com.brux88.brux88_beacon.util.PreferenceUtils
 import com.brux88.brux88_beacon.util.RegionUtils
 import java.util.Date
-
+import android.os.Handler
+import android.os.Looper
 class BeaconMonitoringService : Service(), RangeNotifier {
     private val TAG = "BeaconService"
     private lateinit var beaconManager: BeaconManager
     private lateinit var logRepository: LogRepository
     private var wakeLock: PowerManager.WakeLock? = null
-
+    private val retryHandler = Handler(Looper.getMainLooper())
+    private val retryRunnable = object : Runnable {
+        override fun run() {
+            if (::activeRegion.isInitialized) {
+                Log.d(TAG, "Tentativo di riavvio ranging")
+                logRepository.addLog("RETRY: Tentativo di riavvio ranging")
+                
+                try {
+                    beaconManager.startRangingBeaconsInRegion(activeRegion)
+                    beaconManager.startMonitoringBeaconsInRegion(activeRegion)
+                    logRepository.addLog("RETRY: Ranging e monitoraggio riavviati")
+                } catch (e: Exception) {
+                    Log.e(TAG, "RETRY: Errore nel riavvio: ${e.message}")
+                    logRepository.addLog("RETRY: Errore nel riavvio: ${e.message}")
+                }
+            }
+            
+            // Riprograma se stessi ogni 60 secondi
+            retryHandler.postDelayed(this, 60000)
+        }
+    }
     // Implementazione di RangeNotifier
     override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {
         if (beacons.isNotEmpty()) {
@@ -63,6 +84,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
         val application = applicationContext
         beaconManager = BeaconManager.getInstanceForApplication(application)
         logRepository = LogRepository(applicationContext)
+        retryHandler.postDelayed(retryRunnable, 60000)
 
         // Configurazione per il ranging (distanza) dei beacon
         beaconManager.addRangeNotifier(this)
@@ -80,50 +102,66 @@ class BeaconMonitoringService : Service(), RangeNotifier {
  
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "Service onStartCommand")
-
+        
+        // Verifica lo stato del Bluetooth
+        // Gestisci l'azione BLUETOOTH_READY
+        if (intent != null && "com.brux88.brux88_beacon.BLUETOOTH_READY".equals(intent.action)) {
+            Log.d(TAG, "Ricevuta notifica Bluetooth pronto")
+            logRepository.addLog("SERVIZIO: Ricevuta notifica Bluetooth pronto")
+            
+            try {
+                if (::activeRegion.isInitialized) {
+                    beaconManager.startRangingBeaconsInRegion(activeRegion)
+                    beaconManager.startMonitoringBeaconsInRegion(activeRegion)
+                    logRepository.addLog("SERVIZIO: Riavviato ranging dopo attivazione Bluetooth")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore nel riavvio ranging: ${e.message}")
+                logRepository.addLog("SERVIZIO: Errore nel riavvio ranging: ${e.message}")
+            }
+            
+            return START_STICKY
+        }
+    
         // Creazione del canale di notifica (richiesto per Android 8.0+)
         createNotificationChannel()
-
+    
         // Avvio del servizio in foreground
         startForeground(
             FOREGROUND_NOTIFICATION_ID,
             createNotification("Monitoraggio beacon attivo")
         )
-
-         // Ottieni la regione attiva (specifica o generica in base alla selezione)
-    activeRegion = if (PreferenceUtils.isSelectedBeaconEnabled(this)) {
-        val selectedBeacon = PreferenceUtils.getSelectedBeacon(this)
-        if (selectedBeacon != null) {
-            RegionUtils.createRegionForBeacon(selectedBeacon)
+    
+        // Ottieni la regione attiva (specifica o generica in base alla selezione)
+        activeRegion = if (PreferenceUtils.isSelectedBeaconEnabled(this)) {
+            val selectedBeacon = PreferenceUtils.getSelectedBeacon(this)
+            if (selectedBeacon != null) {
+                RegionUtils.createRegionForBeacon(selectedBeacon)
+            } else {
+                RegionUtils.ALL_BEACONS_REGION
+            }
         } else {
             RegionUtils.ALL_BEACONS_REGION
         }
-    } else {
-        RegionUtils.ALL_BEACONS_REGION
-    }
-    // Configura scansione più aggressiva all'avvio
-    beaconManager.foregroundBetweenScanPeriod = 0  // Scansione continua
-    beaconManager.foregroundScanPeriod = 1100      // 1.1 secondi
-    try {
-        // Forza aggiornamento dei periodi di scansione
-        beaconManager.updateScanPeriods()
-                
-        // Riavvia il ranging e il monitoraggio (anche se già attivi)
-       /* try {
-            beaconManager.stopRangingBeaconsInRegion(activeRegion)
-            beaconManager.stopMonitoringBeaconsInRegion(activeRegion)
+        
+        // Configura ENTRAMBI i tipi di scansione
+        beaconManager.foregroundBetweenScanPeriod = 0       // Scansione continua in foreground
+        beaconManager.foregroundScanPeriod = 1100           // 1.1 secondi
+        beaconManager.backgroundBetweenScanPeriod = 5000    // 5 secondi tra le scansioni in background
+        beaconManager.backgroundScanPeriod = 1100           // 1.1 secondi
+        
+        try {
+            // Forza aggiornamento dei periodi di scansione
+            beaconManager.updateScanPeriods()
+                    
+            beaconManager.startRangingBeaconsInRegion(activeRegion)
+            beaconManager.startMonitoringBeaconsInRegion(activeRegion)
+            logRepository.addLog("Ranging e monitoraggio avviati nella regione: ${activeRegion.uniqueId}")
         } catch (e: Exception) {
-            // Ignora errori se non erano attivi
-        }*/
-
-        beaconManager.startRangingBeaconsInRegion(activeRegion)
-        beaconManager.startMonitoringBeaconsInRegion(activeRegion)
-        logRepository.addLog("Ranging e monitoraggio avviati nella regione: ${activeRegion.uniqueId}")
-    } catch (e: Exception) {
-        Log.e(TAG, "Errore nell'avvio del ranging: ${e.message}")
-        logRepository.addLog("ERRORE: Impossibile avviare il ranging: ${e.message}")
-    }
-
+            Log.e(TAG, "Errore nell'avvio del ranging: ${e.message}")
+            logRepository.addLog("ERRORE: Impossibile avviare il ranging: ${e.message}")
+        }
+    
         // Aggiungi un monitor notifier direttamente nel servizio
         beaconManager.addMonitorNotifier(object : MonitorNotifier {
             override fun didEnterRegion(region: Region) {
@@ -135,7 +173,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
                     "Sei entrato nella regione ${region.uniqueId}"
                 )
             }
-
+    
             override fun didExitRegion(region: Region) {
                 Log.d(TAG, "SERVIZIO: Uscito dalla regione ${region.uniqueId}")
                 // Forza una notifica immediata
@@ -145,15 +183,13 @@ class BeaconMonitoringService : Service(), RangeNotifier {
                     "Sei uscito dalla regione ${region.uniqueId}"
                 )
             }
-
+    
             override fun didDetermineStateForRegion(state: Int, region: Region) {
                 val stateStr = if (state == MonitorNotifier.INSIDE) "DENTRO" else "FUORI"
                 Log.d(TAG, "SERVIZIO: Stato regione cambiato a $stateStr per ${region.uniqueId}")
             }
         })
-
-       
-
+    
         // Se il servizio viene terminato dal sistema, verrà riavviato
         return START_STICKY
     }
@@ -198,6 +234,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
                 it.release()
             }
         }
+        retryHandler.removeCallbacks(retryRunnable)
 
         // Ferma il monitoraggio dei beacon
         try {

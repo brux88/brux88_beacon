@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.brux88.brux88_beacon.repository.LogRepository
 import com.brux88.brux88_beacon.util.PreferenceUtils
@@ -26,7 +28,7 @@ class BeaconBootReceiver : BroadcastReceiver() {
                 Log.i(TAG, "Pianificazione avvio servizio di monitoraggio beacon dopo il boot")
                 logRepository.addLog("BOOT: Pianificazione avvio monitoraggio")
 
-                // Tentiamo anche un avvio diretto
+                // Avvia il servizio immediatamente, senza controllo Bluetooth
                 try {
                     val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -34,7 +36,7 @@ class BeaconBootReceiver : BroadcastReceiver() {
                     } else {
                         context.startService(serviceIntent)
                     }
-                    logRepository.addLog("BOOT: Tentativo avvio diretto servizio")
+                    logRepository.addLog("BOOT: Avvio diretto servizio")
                 } catch (e: Exception) {
                     Log.e(TAG, "Avvio diretto fallito: ${e.message}")
                     logRepository.addLog("BOOT: Avvio diretto fallito")
