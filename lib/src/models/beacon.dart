@@ -6,6 +6,7 @@ class Beacon {
   final double distance;
   final int rssi;
   final int txPower;
+  final DateTime lastSeen; // Aggiungi questo campo
 
   Beacon({
     required this.uuid,
@@ -14,7 +15,8 @@ class Beacon {
     required this.distance,
     required this.rssi,
     required this.txPower,
-  });
+    DateTime? lastSeen,
+  }) : this.lastSeen = lastSeen ?? DateTime.now();
 
   factory Beacon.fromMap(Map<dynamic, dynamic> map) {
     return Beacon(
@@ -24,6 +26,7 @@ class Beacon {
       distance: map['distance'] as double,
       rssi: map['rssi'] as int,
       txPower: map['txPower'] as int,
+      lastSeen: DateTime.now(), // Imposta il timestamp attuale
     );
   }
 
@@ -35,6 +38,7 @@ class Beacon {
       'distance': distance,
       'rssi': rssi,
       'txPower': txPower,
+      'lastSeen': lastSeen.millisecondsSinceEpoch,
     };
   }
 
