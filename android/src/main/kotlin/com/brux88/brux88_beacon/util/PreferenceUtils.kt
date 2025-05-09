@@ -26,7 +26,15 @@ object PreferenceUtils {
     private const val DEFAULT_BACKGROUND_BETWEEN_SCAN_PERIOD: Long = 5000
     private const val DEFAULT_MAX_TRACKING_AGE: Long = 5000
     private const val KEY_PENDING_RESTART = "pending_restart"
+    private const val KEY_SHOW_DETECTION_NOTIFICATIONS = "show_detection_notifications"
 
+    fun setShowDetectionNotifications(context: Context, show: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_SHOW_DETECTION_NOTIFICATIONS, show).apply()
+    }
+
+    fun shouldShowDetectionNotifications(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_SHOW_DETECTION_NOTIFICATIONS, true)
+    }
 
     fun setPendingRestart(context: Context, pending: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_PENDING_RESTART, pending).apply()

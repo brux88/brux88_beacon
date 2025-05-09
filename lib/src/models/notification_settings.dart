@@ -7,6 +7,7 @@ class NotificationSettings {
   final int importance; // 1 = low, 2 = default, 3 = high
   final bool showBadge;
   final String? smallIconResourceName;
+  final bool showBeaconDetectionNotifications; // Aggiungi questa proprietà
 
   // Personalizzazione del contenuto
   final String entryTitle;
@@ -22,6 +23,7 @@ class NotificationSettings {
     this.importance = 2,
     this.showBadge = false,
     this.smallIconResourceName,
+    this.showBeaconDetectionNotifications = true, // Nuovo campo
     this.entryTitle = 'Beacon Detected',
     this.entryMessage = 'You have entered a beacon region',
     this.exitTitle = 'Beacon Lost',
@@ -37,6 +39,8 @@ class NotificationSettings {
       'importance': importance,
       'showBadge': showBadge,
       'smallIconResourceName': smallIconResourceName,
+      'showBeaconDetectionNotifications':
+          showBeaconDetectionNotifications, // Aggiungilo alla mappa
       'entryTitle': entryTitle,
       'entryMessage': entryMessage,
       'exitTitle': exitTitle,

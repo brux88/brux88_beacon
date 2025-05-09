@@ -58,16 +58,28 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             Log.d(TAG, logMessage)
             logRepository.addLog(logMessage)
             
-            // Mostra una notifica con l'UUID del beacon
-            val notification = NotificationUtils.createServiceNotification(
-                this,
-                "Beacon rilevato",
-                "UUID: ${beacon.id1}, Distanza: ${String.format("%.2f", beacon.distance)}m"
-            )
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(FOREGROUND_NOTIFICATION_ID, notification)
+            if (PreferenceUtils.shouldShowDetectionNotifications(this)){
+                // Aggiorna sempre la notifica del servizio in foreground
+                val notification = NotificationUtils.createServiceNotification(
+                    this,
+                    "Beacon rilevato",
+                    "UUID: ${beacon.id1}, Distanza: ${String.format("%.2f", beacon.distance)}m"
+                )
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.notify(FOREGROUND_NOTIFICATION_ID, notification)
+            }
+            // Mostra una notifica di rilevamento solo se abilitata
+            // Questo è un'opzione aggiuntiva che puoi mostrare oltre alla notifica del servizio
+            /*if (PreferenceUtils.shouldShowDetectionNotifications(this)) {
+                NotificationUtils.showBeaconDetectedNotification(
+                    this,
+                    "Nuovo beacon rilevato",
+                    "UUID: ${beacon.id1}, Distanza: ${String.format("%.2f", beacon.distance)}m"
+                )
+            }*/
         }
     }
+
 
     //ID per gestire il servizio in foreground
     private val FOREGROUND_NOTIFICATION_ID = 1

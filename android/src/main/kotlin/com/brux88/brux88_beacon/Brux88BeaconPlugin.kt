@@ -44,6 +44,8 @@ import com.brux88.brux88_beacon.util.RegionUtils
 import com.brux88.brux88_beacon.util.BeaconBootstrapper
 import android.content.IntentFilter
 import android.bluetooth.BluetoothAdapter
+import com.brux88.brux88_beacon.util.NotificationUtils
+
 class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier  {
     private val TAG = "Brux88BeaconPlugin"
     private var beaconBootstrapper: BeaconBootstrapper? = null
@@ -201,6 +203,11 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                     PreferenceUtils.setMonitoringEnabled(context, enabled)
                     result.success(true)
                 }
+                "setShowDetectionNotifications" -> {
+                    val show = call.arguments as? Boolean ?: true
+                    setShowDetectionNotifications(show, result)
+                }
+
                 else -> {
                     result.notImplemented()
                 }
@@ -241,6 +248,19 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
           result.error("INIT_CHECK_ERROR", "Errore nella verifica dell'inizializzazione: ${e.message}", null)
         }
       }
+    private fun setShowDetectionNotifications(show: Boolean, result: Result) {
+        try {
+            PreferenceUtils.setShowDetectionNotifications(context, show)
+            logRepository.addLog("Notifiche di rilevamento beacon ${if (show) "abilitate" else "disabilitate"}")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'impostazione delle notifiche di rilevamento: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'impostazione delle notifiche di rilevamento: ${e.message}")
+            result.error("NOTIFICATION_SETTING_ERROR", 
+                        "Errore nell'impostazione delle notifiche di rilevamento: ${e.message}", null)
+        }
+    }
+
     private fun setupRecurringAlarm(result: Result) {
         try {
             // Verifica il permesso per Android 12+
@@ -495,7 +515,13 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                         logRepository.addLog("ERRORE nell'avvio del servizio per riavvio pendente: ${e.message}")
                     }
                 }
+
             }
+               // Inizializza lo stato delle notifiche
+            PreferenceUtils.setShowDetectionNotifications(
+                context,
+                PreferenceUtils.shouldShowDetectionNotifications(context)
+            )
             logRepository.addLog("BeaconManager inizializzato con successo")
             result.success(true)
         } catch (e: Exception) {

@@ -289,6 +289,13 @@ class BeaconManager {
         false;
   }
 
+  /// Non influisce sulle notifiche del servizio in foreground
+  Future<bool> setShowDetectionNotifications(bool show) async {
+    return await _methodChannel.invokeMethod<bool>(
+            'setShowDetectionNotifications', show) ??
+        false;
+  }
+
   /// Request necessary permissions
   Future<bool> requestPermissions() async {
     return await _methodChannel.invokeMethod<bool>('requestPermissions') ??
