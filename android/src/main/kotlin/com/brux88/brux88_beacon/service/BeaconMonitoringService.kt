@@ -50,6 +50,18 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             retryHandler.postDelayed(this, 60000)
         }
     }
+    companion object {
+        private const val TAG = "BeaconService"
+        private const val FOREGROUND_NOTIFICATION_ID = 1
+        private const val CHANNEL_ID = "beacon_monitoring_channel"
+        
+        // Flag statico per tenere traccia dello stato
+        private var isServiceRunning = false
+        
+        fun isRunning(): Boolean {
+            return isServiceRunning
+        }
+    }
     // Implementazione di RangeNotifier
     override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {
         if (beacons.isNotEmpty()) {
@@ -57,7 +69,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             val logMessage = "Beacon: ID=${beacon.id1}, Distanza=${String.format("%.2f", beacon.distance)}m, RSSI=${beacon.rssi}"
             Log.d(TAG, logMessage)
             logRepository.addLog(logMessage)
-            
+
             if (PreferenceUtils.shouldShowDetectionNotifications(this)){
                 // Aggiorna sempre la notifica del servizio in foreground
                 val notification = NotificationUtils.createServiceNotification(
@@ -91,6 +103,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service onCreate")
+        isServiceRunning = true
 
         // Ottieni il BeaconManager dall'Application
         val application = applicationContext
@@ -255,6 +268,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
         } catch (e: Exception) {
             Log.e(TAG, "Errore nell'arresto del ranging: ${e.message}")
         }
+        isServiceRunning = false
 
         super.onDestroy()
     }

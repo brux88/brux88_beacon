@@ -157,7 +157,7 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                     getMonitoredRegions(result)
                 }
                 "isMonitoringRunning" -> {
-                    result.success(PreferenceUtils.isMonitoringEnabled(context))
+                    isMonitoringRunning(result)
                 }
                 "isBluetoothEnabled" -> {
                     isBluetoothEnabled(result)
@@ -217,6 +217,47 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             Log.e(TAG, "Errore in onMethodCall: ${e.message}", e)
             result.error("INTERNAL_ERROR", "Si è verificato un errore interno: ${e.message}", null)
         }
+    }
+    private fun isMonitoringRunning(result: Result) {
+        try {
+            // Verifica prima lo stato salvato nelle preferenze
+           // val isEnabledInPrefs = PreferenceUtils.isMonitoringEnabled(context)
+            
+            // Poi verifica se il servizio è effettivamente in esecuzione
+            val isServiceRunning = isServiceRunning(context, BeaconMonitoringService::class.java)
+            
+            // Considera attivo il monitoraggio solo se entrambe le condizioni sono vere
+            val isActive = isServiceRunning && isServiceRunning
+            
+            Log.d(TAG, "Stato monitoraggio: Servizio=$isServiceRunning, Attivo=$isActive")
+            logRepository.addLog("Controllo stato monitoraggio: Servizio=$isServiceRunning, Attivo=$isActive")
+            
+            result.success(isActive)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel controllare lo stato del monitoraggio: ${e.message}", e)
+            logRepository.addLog("ERRORE nel controllo stato monitoraggio: ${e.message}")
+            result.error("MONITORING_CHECK_ERROR", "Errore nel controllare lo stato del monitoraggio: ${e.message}", null)
+        }
+    }
+
+    private fun isServiceRunning(context: Context, serviceClass: Class<*>): Boolean {
+        try {
+            // Primo tentativo: usa il flag statico nel servizio
+            if (BeaconMonitoringService::class.java == serviceClass && BeaconMonitoringService.isRunning()) {
+                return true
+            }
+            
+            // Secondo tentativo: usa il ActivityManager
+            val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            for (service in manager.getRunningServices(Integer.MAX_VALUE)) {
+                if (serviceClass.name == service.service.className) {
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel verificare lo stato del servizio: ${e.message}")
+        }
+        return false
     }
     private fun isInitialized(result: Result) {
         try {
