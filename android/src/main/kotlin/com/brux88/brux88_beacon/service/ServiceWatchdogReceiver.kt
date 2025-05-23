@@ -13,9 +13,13 @@ class ServiceWatchdogReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val logRepository = LogRepository(context)
+    if (!PreferenceUtils.isWatchdogEnabled(context)) {
+            logRepository.addLog("WATCHDOG: Disabilitato, nessuna azione")
+            return
+        }
+        
         Log.d(TAG, "Controllo stato del servizio")
         logRepository.addLog("WATCHDOG: Controllo stato del servizio")
-
         // Verifica se il monitoraggio dovrebbe essere attivo
         if (PreferenceUtils.isMonitoringEnabled(context)) {
             // Verifica se il servizio è in esecuzione

@@ -123,6 +123,47 @@ class BeaconManager {
     }
   }
 
+  Future<bool> enableAllAutoRestart() async {
+    try {
+      final autoRestart = await setAutoRestartEnabled(true);
+      final alarms = await setupRecurringAlarm();
+
+      print('Auto-restart enabled: $autoRestart');
+      print('Alarms setup: $alarms');
+
+      return autoRestart && alarms;
+    } catch (e) {
+      print('Error enabling auto-restart: $e');
+      return false;
+    }
+  }
+
+  Future<bool> disableAllAutoRestart() async {
+    final watchdog = await setWatchdogEnabled(false);
+    final autoRestart = await setAutoRestartEnabled(false);
+    final alarms = await cancelRecurringAlarm();
+
+    return watchdog && autoRestart && alarms;
+  }
+
+  Future<bool> setWatchdogEnabled(bool enabled) async {
+    return await _methodChannel.invokeMethod<bool>(
+            'setWatchdogEnabled', enabled) ??
+        false;
+  }
+
+  Future<bool> isAutoRestartEnabled() async {
+    return await _methodChannel.invokeMethod<bool>('isAutoRestartEnabled') ??
+        false;
+  }
+
+  /// Enable/disable automatic service restart mechanisms
+  Future<bool> setAutoRestartEnabled(bool enabled) async {
+    return await _methodChannel.invokeMethod<bool>(
+            'setAutoRestartEnabled', enabled) ??
+        false;
+  }
+
   /// Setup a recurring alarm to restart the beacon monitoring service periodically
   Future<bool> setupRecurringAlarm() async {
     return await _methodChannel.invokeMethod<bool>('setupRecurringAlarm') ??
@@ -384,6 +425,12 @@ class BeaconManager {
   Future<bool> setShowDetectionNotifications(bool show) async {
     return await _methodChannel.invokeMethod<bool>(
             'setShowDetectionNotifications', show) ??
+        false;
+  }
+
+  Future<bool> setAutoStartEnabled(bool enabled) async {
+    return await _methodChannel.invokeMethod<bool>(
+            'setAutoStartEnabled', enabled) ??
         false;
   }
 

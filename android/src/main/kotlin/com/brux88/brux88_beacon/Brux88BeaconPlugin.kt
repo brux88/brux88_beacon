@@ -235,6 +235,25 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 "isForegroundMonitoringRunning" -> {
                     isForegroundMonitoringRunning(result)
                 }
+                "setAutoStartEnabled" -> {
+                    val enabled = call.arguments as? Boolean ?: false
+                    setAutoStartEnabled(enabled, result)
+                }
+                "setWatchdogEnabled" -> {
+                    val enabled = call.arguments as? Boolean ?: false
+                    setWatchdogEnabled(enabled, result)
+                }
+                "setAutoRestartEnabled" -> {
+                    val enabled = call.arguments as? Boolean ?: false
+                    setAutoRestartEnabled(enabled, result)
+                }
+                "setAutoRestartEnabled" -> {
+                    val enabled = call.arguments as? Boolean ?: false
+                    setAutoRestartEnabled(enabled, result)
+                }
+                "isAutoRestartEnabled" -> {
+                    isAutoRestartEnabled(result)
+                }               
                 else -> {
                     result.notImplemented()
                 }
@@ -243,6 +262,161 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             logRepository.addLog("ERRORE in onMethodCall: ${e.message}")
             Log.e(TAG, "Errore in onMethodCall: ${e.message}", e)
             result.error("INTERNAL_ERROR", "Si è verificato un errore interno: ${e.message}", null)
+        }
+    }
+    private fun setupRecurringAlarmInternal() {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, BeaconMonitoringService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+
+            // Intervallo di 15 minuti
+            val interval = 15 * 60 * 1000L
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            }
+            
+            logRepository.addLog("AUTO-RESTART: Allarme ricorrente impostato")
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'impostazione allarme ricorrente: ${e.message}", e)
+            logRepository.addLog("ERRORE AUTO-RESTART: Allarme ricorrente: ${e.message}")
+        }
+    }
+
+    private fun cancelRecurringAlarmInternal() {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, BeaconMonitoringService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            
+            logRepository.addLog("AUTO-RESTART: Allarme ricorrente cancellato")
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella cancellazione allarme ricorrente: ${e.message}", e)
+            logRepository.addLog("ERRORE AUTO-RESTART: Cancellazione allarme: ${e.message}")
+        }
+    }
+
+    // Aggiungi un metodo per ottenere lo stato
+    private fun isAutoRestartEnabled(result: Result) {
+        try {
+            val isEnabled = PreferenceUtils.isAutoRestartEnabled(context)
+            Log.d(TAG, "Auto-restart abilitato: $isEnabled")
+            logRepository.addLog("AUTO-RESTART: Stato richiesto - $isEnabled")
+            result.success(isEnabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel controllo auto-restart: ${e.message}", e)
+            logRepository.addLog("ERRORE AUTO-RESTART: Controllo stato: ${e.message}")
+            result.error("AUTO_RESTART_CHECK_ERROR", "Errore nel controllo auto-restart: ${e.message}", null)
+        }
+    }
+    private fun setAutoRestartEnabled(enabled: Boolean, result: Result) {
+        try {
+            PreferenceUtils.setAutoRestartEnabled(context, enabled)
+            
+            if (enabled) {
+                // Se abilitato, imposta tutti i meccanismi di riavvio
+                logRepository.addLog("AUTO-RESTART: Abilitazione meccanismi di riavvio")
+                
+                // Abilita il watchdog
+                PreferenceUtils.setWatchdogEnabled(context, true)
+                
+                // Imposta l'allarme ricorrente se il monitoraggio è attivo
+                if (PreferenceUtils.isMonitoringEnabled(context) || PreferenceUtils.isBackgroundServiceEnabled(context)) {
+                    setupRecurringAlarmInternal()
+                }
+                
+            } else {
+                // Se disabilitato, ferma tutti i meccanismi di riavvio
+                logRepository.addLog("AUTO-RESTART: Disabilitazione meccanismi di riavvio")
+                
+                // Disabilita il watchdog
+                PreferenceUtils.setWatchdogEnabled(context, false)
+                
+                // Cancella l'allarme ricorrente
+                cancelRecurringAlarmInternal()
+            }
+            
+            logRepository.addLog("AUTO-RESTART: ${if (enabled) "abilitato" else "disabilitato"}")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'impostazione auto-restart: ${e.message}", e)
+            logRepository.addLog("ERRORE AUTO-RESTART: ${e.message}")
+            result.error("AUTO_RESTART_ERROR", "Errore nell'impostazione auto-restart: ${e.message}", null)
+        }
+    }
+    private fun setWatchdogEnabled(enabled: Boolean, result: Result) {
+        try {
+            PreferenceUtils.setWatchdogEnabled(context, enabled)
+            
+            if (enabled) {
+                // Imposta il watchdog se abilitato
+                setupServiceWatchdog(result)
+            } else {
+                // Cancella il watchdog se disabilitato
+                cancelServiceWatchdog(result)
+            }
+            
+            logRepository.addLog("Watchdog servizio ${if (enabled) "abilitato" else "disabilitato"}")
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("WATCHDOG_ERROR", "Errore nell'impostazione watchdog: ${e.message}", null)
+        }
+    }
+
+    private fun cancelServiceWatchdog(result: Result) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, ServiceWatchdogReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            
+            logRepository.addLog("Watchdog per il servizio cancellato")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella cancellazione del watchdog: ${e.message}", e)
+            result.error("WATCHDOG_CANCEL_ERROR", "Errore nella cancellazione del watchdog: ${e.message}", null)
+        }
+    }
+
+
+    private fun setAutoStartEnabled(enabled: Boolean, result: Result) {
+        try {
+            PreferenceUtils.setAutoStartEnabled(context, enabled)
+            logRepository.addLog("Auto-start impostato a: $enabled")
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("AUTO_START_ERROR", "Errore nell'impostazione auto-start: ${e.message}", null)
         }
     }
     private fun startForegroundMonitoringOnly(result: Result) {
@@ -741,7 +915,7 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             }
             
             // Verifica se c'è un riavvio pendente
-            if (PreferenceUtils.hasPendingRestart(context) && PreferenceUtils.isMonitoringEnabled(context)) {
+           /*  if (PreferenceUtils.hasPendingRestart(context) && PreferenceUtils.isMonitoringEnabled(context)) {
                 Log.d(TAG, "Riavvio pendente rilevato, pianificazione avvio servizio")
                 logRepository.addLog("Riavvio pendente rilevato durante inizializzazione")
                 
@@ -763,7 +937,7 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                     }
                 }
 
-            }
+            }*/
                // Inizializza lo stato delle notifiche
             PreferenceUtils.setShowDetectionNotifications(
                 context,
@@ -1515,7 +1689,7 @@ private fun requestPermissions(result: Result) {
       logRepository.addLog("Plugin allegato ad Activity")
       
       // Verifica se il monitoraggio era attivo e ripristinalo
-      if (PreferenceUtils.isMonitoringEnabled(context)) {
+      /*if (PreferenceUtils.isMonitoringEnabled(context)) {
           Log.d(TAG, "Ripristino monitoraggio al ricollegamento all'Activity")
           logRepository.addLog("Ripristino monitoraggio al ricollegamento all'Activity")
           
@@ -1532,7 +1706,7 @@ private fun requestPermissions(result: Result) {
               Log.e(TAG, "Errore nel riavvio del servizio: ${e.message}", e)
               logRepository.addLog("ERRORE nel riavvio del servizio: ${e.message}")
           }
-      }
+      }*/
   }
 
   override fun onDetachedFromActivityForConfigChanges() {
@@ -1558,6 +1732,12 @@ private fun requestPermissions(result: Result) {
             Log.d(TAG, "Avvio servizio background")
             logRepository.addLog("Avvio servizio background")
             
+            if (PreferenceUtils.isAutoRestartEnabled(context)) {
+                setupRecurringAlarmInternal()
+                logRepository.addLog("BACKGROUND: Allarme ricorrente abilitato (auto-restart attivo)")
+            } else {
+                logRepository.addLog("BACKGROUND: Allarme ricorrente disabilitato (auto-restart inattivo)")
+            }
             // Verifica se il Bluetooth è abilitato
             val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
             if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
@@ -1596,7 +1776,8 @@ private fun requestPermissions(result: Result) {
         try {
             Log.d(TAG, "Arresto servizio background")
             logRepository.addLog("Arresto servizio background")
-            
+            cancelRecurringAlarmInternal()
+
             // Imposta il flag che il servizio background è disabilitato
             PreferenceUtils.setBackgroundServiceEnabled(context, false)
             

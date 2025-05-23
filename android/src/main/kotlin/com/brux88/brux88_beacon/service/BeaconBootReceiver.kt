@@ -12,8 +12,27 @@ import com.brux88.brux88_beacon.util.PreferenceUtils
 
 class BeaconBootReceiver : BroadcastReceiver() {
     private val TAG = "BeaconBootReceiver"
-
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED ||
+            intent.action == "android.intent.action.QUICKBOOT_POWERON") {
+
+            Log.i(TAG, "Boot completato")
+
+            val logRepository = LogRepository(context)
+            logRepository.addLog("BOOT: Dispositivo avviato")
+
+            // MODIFICA: Solo log, nessun avvio automatico
+            if (PreferenceUtils.isMonitoringEnabled(context)) {
+                logRepository.addLog("BOOT: Monitoraggio era attivo, ma richiede avvio manuale")
+            } else {
+                logRepository.addLog("BOOT: Monitoraggio non attivo, nessuna azione")
+            }
+            
+            // NON avviare automaticamente il servizio
+            // L'utente dovrà chiamare manualmente startBackgroundService() o startMonitoring()
+        }
+    }
+    /*override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED ||
             intent.action == "android.intent.action.QUICKBOOT_POWERON") {
 
@@ -45,5 +64,5 @@ class BeaconBootReceiver : BroadcastReceiver() {
                 logRepository.addLog("BOOT: Monitoraggio non attivo, nessuna azione")
             }
         }
-    }
+    }*/
 }

@@ -154,7 +154,8 @@ class BeaconMonitoringService : Service(), RangeNotifier {
                 logRepository.addLog("SERVIZIO: Errore nel riavvio ranging: ${e.message}")
             }
             
-            return START_STICKY
+            return START_NOT_STICKY
+            //return START_STICKY
         }
     
         // Creazione del canale di notifica (richiesto per Android 8.0+)
@@ -320,7 +321,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
 
         super.onDestroy()
     }
-    
+
     override fun onBind(intent: Intent?): IBinder? {
         return null
     }

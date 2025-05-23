@@ -21,7 +21,11 @@ class BluetoothStateReceiver : BroadcastReceiver() {
                 BluetoothAdapter.STATE_ON -> {
                     Log.i(TAG, "Bluetooth attivato")
                     logRepository.addLog("BLUETOOTH: Attivato")
-                    
+                    // AGGIUNGI questo controllo:
+                    if (!PreferenceUtils.isWatchdogEnabled(context)) {
+                        logRepository.addLog("BLUETOOTH: Watchdog disabilitato, nessun riavvio automatico")
+                        return
+                    }
                     // Forza un intent al servizio per informarlo che il Bluetooth è pronto
                     try {
                         val serviceIntent = Intent(context, BeaconMonitoringService::class.java)

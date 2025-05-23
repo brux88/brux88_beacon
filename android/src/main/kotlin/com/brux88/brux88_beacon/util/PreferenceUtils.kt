@@ -29,8 +29,38 @@ object PreferenceUtils {
     private const val KEY_SHOW_DETECTION_NOTIFICATIONS = "show_detection_notifications"
     private const val KEY_FOREGROUND_MONITORING_ENABLED = "foreground_monitoring_enabled"
     private const val KEY_BACKGROUND_SERVICE_ENABLED = "background_service_enabled"
+    private const val KEY_AUTO_START_ENABLED = "auto_start_enabled"
+    private const val KEY_WATCHDOG_ENABLED = "watchdog_enabled"
+    private const val KEY_AUTO_RESTART_ENABLED = "auto_restart_enabled"
+    /**
+     * Abilita/disabilita il riavvio automatico del servizio
+     */
+    fun setAutoRestartEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_AUTO_RESTART_ENABLED, enabled).apply()
+    }
 
+  
+    fun setAutoStartEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_AUTO_START_ENABLED, enabled).apply()
+    }
 
+    /**
+     * Controlla se il riavvio automatico è abilitato
+     */
+    fun isAutoRestartEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_AUTO_RESTART_ENABLED, false) // Default FALSE
+    }
+
+    fun isWatchdogEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_WATCHDOG_ENABLED, false) // Default FALSE
+    }
+    fun setWatchdogEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_WATCHDOG_ENABLED, enabled).apply()
+    }
+
+    fun isAutoStartEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_AUTO_START_ENABLED, false)
+    }
      /**
      * Abilita/disabilita il monitoraggio foreground
      */
@@ -80,7 +110,7 @@ object PreferenceUtils {
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
-    
+
     fun setMonitoringEnabled(context: Context, enabled: Boolean) {
         // Per compatibilità, imposta entrambi
         setForegroundMonitoringEnabled(context, enabled)
