@@ -45,11 +45,14 @@ import com.brux88.brux88_beacon.util.BeaconBootstrapper
 import android.content.IntentFilter
 import android.bluetooth.BluetoothAdapter
 import com.brux88.brux88_beacon.util.NotificationUtils
+import org.altbeacon.beacon.BeaconConsumer
+import android.content.ServiceConnection
 
-class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier  {
+class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier, BeaconConsumer  {
     private val TAG = "Brux88BeaconPlugin"
     private var beaconBootstrapper: BeaconBootstrapper? = null
-
+    private var isBeaconServiceConnected = false
+    private var pendingOperations = mutableListOf<() -> Unit>()
 
     private lateinit var methodChannel: MethodChannel
     private lateinit var beaconsEventChannel: EventChannel
@@ -112,7 +115,48 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             }
         })
     }
+    override fun onBeaconServiceConnect() {
+        Log.d(TAG, "🔗 BeaconService connesso!")
+        logRepository.addLog("BEACON SERVICE: Connesso")
+        
+        isBeaconServiceConnected = true
+        
+        // Esegui tutte le operazioni in coda
+        pendingOperations.forEach { operation ->
+            try {
+                operation.invoke()
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore esecuzione operazione in coda: ${e.message}")
+            }
+        }
+        pendingOperations.clear()
+        
+        Log.d(TAG, "✅ BeaconService pronto per operazioni")
+        logRepository.addLog("BEACON SERVICE: Pronto per operazioni")
+    }
 
+    override fun getApplicationContext(): Context {
+        return context.applicationContext
+    }
+
+    override fun unbindService(connection: ServiceConnection) {
+        Log.d(TAG, "🔌 Unbinding BeaconService")
+        try {
+            context.unbindService(connection)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore durante unbind: ${e.message}")
+        }
+    }
+
+    override fun bindService(intent: Intent, connection: ServiceConnection, flags: Int): Boolean {
+        Log.d(TAG, "🔗 Binding BeaconService")
+        return try {
+            context.bindService(intent, connection, flags)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore durante bind: ${e.message}")
+            false
+        }
+    }
     override fun onMethodCall(@NonNull call: MethodCall, @NonNull result: Result) {
         try {
             when (call.method) {
@@ -419,46 +463,144 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             result.error("AUTO_START_ERROR", "Errore nell'impostazione auto-start: ${e.message}", null)
         }
     }
-    private fun startForegroundMonitoringOnly(result: Result) {
+        private fun startForegroundMonitoringOnly(result: Result) {
         try {
             Log.d(TAG, "Avvio monitoraggio SOLO foreground")
             logRepository.addLog("Avvio monitoraggio SOLO foreground")
             
-            // Verifica se abbiamo un beacon selezionato
-            val selectedBeacon = PreferenceUtils.getSelectedBeacon(context)
-            val region = if (selectedBeacon != null && PreferenceUtils.isSelectedBeaconEnabled(context)) {
-                Log.d(TAG, "Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
-                logRepository.addLog("Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
-                RegionUtils.createRegionForBeacon(selectedBeacon)
-            } else {
-                Log.d(TAG, "Monitoraggio di tutti i beacon")
-                logRepository.addLog("Monitoraggio di tutti i beacon")
-                RegionUtils.ALL_BEACONS_REGION
+            if (!::beaconManager.isInitialized) {
+                result.error("NOT_INITIALIZED", "BeaconManager non inizializzato", null)
+                return
             }
             
-            // Salva la regione attiva
-            activeRegion = region
+            // IMPORTANTE: Controlla se il servizio è connesso
+            if (!isBeaconServiceConnected) {
+                Log.d(TAG, "⏳ BeaconService non ancora connesso, operazione in coda")
+                logRepository.addLog("FOREGROUND: Servizio non connesso, operazione in coda")
+                
+                // Metti l'operazione in coda
+                pendingOperations.add {
+                    startForegroundMonitoringOnlyInternal(result)
+                }
+                return
+            }
             
-            // Avvia SOLO il ranging e il monitoraggio (NO servizio background)
-            beaconManager.startRangingBeaconsInRegion(region)
-            beaconManager.startMonitoringBeaconsInRegion(region)
+            // Se il servizio è connesso, esegui immediatamente
+            startForegroundMonitoringOnlyInternal(result)
             
-            Log.d(TAG, "Ranging e monitoraggio foreground avviati nella regione: ${region.uniqueId}")
-            logRepository.addLog("Ranging e monitoraggio foreground avviati nella regione: ${region.uniqueId}")
-            
-            // Salva lo stato di monitoraggio FOREGROUND
-            PreferenceUtils.setForegroundMonitoringEnabled(context, true)
-            
-            // NON avviare il servizio background qui
-            
-            result.success(true)
         } catch (e: Exception) {
             Log.e(TAG, "Errore nell'avvio del monitoraggio foreground: ${e.message}", e)
-            logRepository.addLog("ERRORE nell'avvio del monitoraggio foreground: ${e.message}")
-            result.error("START_FOREGROUND_MONITORING_ERROR", "Errore nell'avvio del monitoraggio foreground: ${e.message}", null)
+            result.error("START_FOREGROUND_MONITORING_ERROR", "Errore: ${e.message}", null)
+        }
+    }
+    
+
+    private fun setupBeaconCallbacks() {
+        try {
+            // IMPORTANTE: Rimuovi i notifier esistenti per evitare duplicati
+            beaconManager.removeAllRangeNotifiers()
+            beaconManager.removeAllMonitorNotifiers()
+            
+            // Range notifier per rilevare i beacon e le loro distanze
+            beaconManager.addRangeNotifier(this) // Usa l'implementazione esistente
+            
+            // Monitor notifier per eventi di entrata/uscita dalle regioni
+            beaconManager.addMonitorNotifier(object : MonitorNotifier {
+                override fun didEnterRegion(region: Region) {
+                    Log.d(TAG, "PLUGIN: Entrato nella regione ${region.uniqueId}")
+                    logRepository.addLog("PLUGIN: Entrato nella regione ${region.uniqueId}")
+                    
+                    // Invia evento al Dart
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        monitoringSink?.success("INSIDE")
+                    }
+                }
+
+                override fun didExitRegion(region: Region) {
+                    Log.d(TAG, "PLUGIN: Uscito dalla regione ${region.uniqueId}")
+                    logRepository.addLog("PLUGIN: Uscito dalla regione ${region.uniqueId}")
+                    
+                    // Invia evento al Dart
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        monitoringSink?.success("OUTSIDE")
+                    }
+                }
+
+                override fun didDetermineStateForRegion(state: Int, region: Region) {
+                    val stateStr = if (state == MonitorNotifier.INSIDE) "INSIDE" else "OUTSIDE"
+                    Log.d(TAG, "PLUGIN: Stato regione determinato: $stateStr per ${region.uniqueId}")
+                    logRepository.addLog("PLUGIN: Stato regione: $stateStr per ${region.uniqueId}")
+                    
+                    // Invia evento al Dart
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        monitoringSink?.success(stateStr)
+                    }
+                }
+            })
+            
+            Log.d(TAG, "Callbacks beacon configurati correttamente")
+            logRepository.addLog("Callbacks beacon configurati")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella configurazione dei callbacks: ${e.message}", e)
+            logRepository.addLog("ERRORE nella configurazione dei callbacks: ${e.message}")
         }
     }
 
+private fun startForegroundMonitoringOnlyInternal(result: Result) {
+        try {
+            Log.d(TAG, "🚀 Avvio effettivo monitoraggio foreground")
+            logRepository.addLog("FOREGROUND: Avvio effettivo")
+            
+            // Setup callbacks
+            setupBeaconCallbacks()
+            
+            // Determina regione
+            val selectedBeacon = PreferenceUtils.getSelectedBeacon(context)
+            val region = if (selectedBeacon != null && PreferenceUtils.isSelectedBeaconEnabled(context)) {
+                Log.d(TAG, "Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
+                RegionUtils.createRegionForBeacon(selectedBeacon)
+            } else {
+                Log.d(TAG, "Monitoraggio di tutti i beacon")
+                RegionUtils.ALL_BEACONS_REGION
+            }
+            
+            activeRegion = region
+            
+            // Configura scan periods
+            beaconManager.foregroundBetweenScanPeriod = 0
+            beaconManager.foregroundScanPeriod = 1100
+            
+            try {
+                beaconManager.updateScanPeriods()
+            } catch (e: Exception) {
+                Log.w(TAG, "Errore aggiornamento scan periods: ${e.message}")
+            }
+            
+            // AVVIA ranging e monitoring - ora il servizio è connesso!
+            beaconManager.startRangingBeaconsInRegion(region)
+            beaconManager.startMonitoringBeaconsInRegion(region)
+            
+            Log.d(TAG, "✅ Ranging avviato nella regione: ${region.uniqueId}")
+            logRepository.addLog("FOREGROUND: Ranging avviato in ${region.uniqueId}")
+            
+            // Salva stato
+            PreferenceUtils.setForegroundMonitoringEnabled(context, true)
+            
+            // Log di debug
+            Log.d(TAG, "📊 Configurazione finale:")
+            Log.d(TAG, "  Servizio connesso: $isBeaconServiceConnected")
+            Log.d(TAG, "  Regioni in ranging: ${beaconManager.rangedRegions.size}")
+            Log.d(TAG, "  Regioni monitorate: ${beaconManager.monitoredRegions.size}")
+            
+            result.success(true)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'avvio effettivo foreground: ${e.message}", e)
+            logRepository.addLog("ERRORE avvio effettivo foreground: ${e.message}")
+            result.error("START_FOREGROUND_INTERNAL_ERROR", "Errore avvio: ${e.message}", null)
+        }
+    }
     private fun stopForegroundMonitoringOnly(result: Result) {
         try {
             Log.d(TAG, "Arresto monitoraggio SOLO foreground")
@@ -786,7 +928,14 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
         try {
             Log.d(TAG, "Inizializzazione BeaconManager")
             logRepository.addLog("Inizializzazione BeaconManager")
-            
+            isBeaconServiceConnected = false
+            pendingOperations.clear()
+
+            // AGGIUNGI: Reset esplicito dei flag di monitoraggio
+            PreferenceUtils.setMonitoringEnabled(context, false)
+            PreferenceUtils.setForegroundMonitoringEnabled(context, false)
+            PreferenceUtils.setBackgroundServiceEnabled(context, false)
+            PreferenceUtils.setPendingRestart(context, false)
             // Ferma tutte le attività BeaconManager in corso
             try {
                 if (::beaconManager.isInitialized) {
@@ -887,7 +1036,11 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             
             // Imposta la flag di monitoraggio a false per sicurezza
             PreferenceUtils.setMonitoringEnabled(context, false)
+             // IMPORTANTE: Bind al BeaconService
+            Log.d(TAG, "🔗 Binding al BeaconService...")
+            logRepository.addLog("BINDING: Connessione al BeaconService")
             
+            beaconManager.bind(this)
             val uniqueId = "myUniqueId"
             val region = Region(uniqueId, null, null, null)
             activeRegion = region
@@ -898,7 +1051,7 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             // Inizializza il BeaconBootstrapper
             beaconBootstrapper = BeaconBootstrapper(context.applicationContext)
             beaconBootstrapper?.setEventSink(monitoringSink)
-            beaconBootstrapper?.startBootstrapping(region)
+            //beaconBootstrapper?.startBootstrapping(region)
     
             // Ottieni la regione corretta (specifica o generica)
             activeRegion = RegionUtils.getMonitoringRegion(context)
@@ -967,75 +1120,91 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
       }
   }
   private fun setupServiceWatchdog(result: Result) {
-    try {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, ServiceWatchdogReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            context,
-            0,
-            intent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-        )
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, ServiceWatchdogReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
 
-        // Controlla ogni 30 minuti
-        val interval = 30 * 60 * 1000L
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + interval,
-                pendingIntent
-            )
-        } else {
-            alarmManager.setExact(
-                AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + interval,
-                pendingIntent
-            )
+            // Controlla ogni 30 minuti
+            val interval = 30 * 60 * 1000L
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            }
+            
+            logRepository.addLog("Watchdog per il servizio configurato")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella configurazione del watchdog: ${e.message}", e)
+            logRepository.addLog("ERRORE nella configurazione del watchdog: ${e.message}")
+            result.error("WATCHDOG_ERROR", "Errore nella configurazione del watchdog: ${e.message}", null)
         }
-        
-        logRepository.addLog("Watchdog per il servizio configurato")
-        result.success(true)
-    } catch (e: Exception) {
-        Log.e(TAG, "Errore nella configurazione del watchdog: ${e.message}", e)
-        logRepository.addLog("ERRORE nella configurazione del watchdog: ${e.message}")
-        result.error("WATCHDOG_ERROR", "Errore nella configurazione del watchdog: ${e.message}", null)
     }
-}
-
-    private fun setupBeaconCallbacks() {
-        // Range notifier per gli aggiornamenti sulle distanze
-        beaconManager.addRangeNotifier(this)
-            // Aggiungi un RangeNotifier separato per debugging
-
-    }
-
+ 
     // Implementazione di RangeNotifier
     override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {
-        Log.d(TAG, "Range: trovati ${beacons.size} beacon nella regione ${region.uniqueId}")
+        Log.d(TAG, "RANGE CALLBACK: trovati ${beacons.size} beacon nella regione ${region.uniqueId}")
         
         if (beacons.isNotEmpty()) {
-            // Log dettagliato su ogni beacon
-            beacons.forEach { beacon ->
-                Log.d(TAG, "Beacon: UUID=${beacon.id1}, Major=${beacon.id2}, Minor=${beacon.id3}, " +
-                        "Dist=${String.format("%.2f", beacon.distance)}m, RSSI=${beacon.rssi}, " +
-                        "TxPower=${beacon.txPower}")
+            // Log dettagliato per ogni beacon
+            beacons.forEachIndexed { index, beacon ->
+                Log.d(TAG, "Beacon #${index + 1}:")
+                Log.d(TAG, "  UUID: ${beacon.id1}")
+                Log.d(TAG, "  Major: ${beacon.id2}")
+                Log.d(TAG, "  Minor: ${beacon.id3}")
+                Log.d(TAG, "  Distance: ${String.format("%.2f", beacon.distance)}m")
+                Log.d(TAG, "  RSSI: ${beacon.rssi} dBm")
+                Log.d(TAG, "  TxPower: ${beacon.txPower}")
+                
+                logRepository.addLog("BEACON: ${beacon.id1} a ${String.format("%.2f", beacon.distance)}m")
             }
             
             // Aggiorna il repository beacon
             beaconRepository.updateBeacons(beacons, region)
             
-            // Invia i beacon al Dart tramite l'event channel
-            beaconsSink?.success(beacons.map { beacon ->
-                mapOf(
-                    "uuid" to beacon.id1.toString(),
-                    "major" to beacon.id2?.toString(),
-                    "minor" to beacon.id3?.toString(),
-                    "distance" to beacon.distance,
-                    "rssi" to beacon.rssi,
-                    "txPower" to beacon.txPower
-                )
-            })
+            // IMPORTANTE: Invia i beacon al Dart tramite l'event channel
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    val beaconMaps = beacons.map { beacon ->
+                        mapOf(
+                            "uuid" to beacon.id1.toString(),
+                            "major" to beacon.id2?.toString(),
+                            "minor" to beacon.id3?.toString(),
+                            "distance" to beacon.distance,
+                            "rssi" to beacon.rssi,
+                            "txPower" to beacon.txPower
+                        )
+                    }
+                    
+                    Log.d(TAG, "Inviando ${beaconMaps.size} beacon a Flutter")
+                    beaconsSink?.success(beaconMaps)
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Errore nell'invio beacon a Flutter: ${e.message}", e)
+                    logRepository.addLog("ERRORE invio beacon a Flutter: ${e.message}")
+                }
+            }
+        } else {
+            Log.d(TAG, "RANGE CALLBACK: nessun beacon trovato nella regione ${region.uniqueId}")
+            // Invia lista vuota a Flutter
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                beaconsSink?.success(emptyList<Map<String, Any>>())
+            }
         }
     }
 
@@ -1650,38 +1819,25 @@ private fun requestPermissions(result: Result) {
       }
   }
 
-  override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
-      methodChannel.setMethodCallHandler(null)
-      beaconsEventChannel.setStreamHandler(null)
-      monitoringEventChannel.setStreamHandler(null)
-      
-      Log.d(TAG, "Plugin staccato dal motore Flutter")
-      logRepository.addLog("Plugin staccato dal motore Flutter")
-      
-      // Ferma il monitoraggio se attivo
-      /*if (::beaconManager.isInitialized && PreferenceUtils.isMonitoringEnabled(context)) {
-          try {
-              // Ferma tutti i ranging e monitoraggi
-              beaconManager.rangedRegions.forEach { region ->
-                  beaconManager.stopRangingBeaconsInRegion(region)
-              }
-              beaconManager.monitoredRegions.forEach { region ->
-                  beaconManager.stopMonitoringBeaconsInRegion(region)
-              }
-              
-              Log.d(TAG, "Fermati tutti i ranging e monitoraggi al distacco")
-              logRepository.addLog("Fermati tutti i ranging e monitoraggi al distacco")
-              
-              // Ferma il servizio in foreground
-              val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
-              context.stopService(serviceIntent)
-              logRepository.addLog("Servizio di monitoraggio fermato al distacco")
-          } catch (e: Exception) {
-              Log.e(TAG, "Errore nell'arresto del monitoraggio al distacco: ${e.message}", e)
-              logRepository.addLog("ERRORE nell'arresto del monitoraggio al distacco: ${e.message}")
-          }
-      }*/
-  }
+   override fun onDetachedFromEngine(@NonNull binding: FlutterPlugin.FlutterPluginBinding) {
+        methodChannel.setMethodCallHandler(null)
+        beaconsEventChannel.setStreamHandler(null)
+        monitoringEventChannel.setStreamHandler(null)
+        
+        Log.d(TAG, "Plugin staccato dal motore Flutter")
+        logRepository.addLog("Plugin staccato dal motore Flutter")
+        
+        // UNBIND dal BeaconService
+        try {
+            if (::beaconManager.isInitialized && isBeaconServiceConnected) {
+                Log.d(TAG, "🔌 Unbinding dal BeaconService")
+                beaconManager.unbind(this)
+                isBeaconServiceConnected = false
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'unbind: ${e.message}")
+        }
+    }
 
   override fun onAttachedToActivity(binding: ActivityPluginBinding) {
       activity = binding.activity
