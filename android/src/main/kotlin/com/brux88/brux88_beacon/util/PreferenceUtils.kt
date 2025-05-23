@@ -27,7 +27,17 @@ object PreferenceUtils {
     private const val DEFAULT_MAX_TRACKING_AGE: Long = 5000
     private const val KEY_PENDING_RESTART = "pending_restart"
     private const val KEY_SHOW_DETECTION_NOTIFICATIONS = "show_detection_notifications"
+    private const val KEY_BACKGROUND_SERVICE_ENABLED = "background_service_enabled"
+    fun setBackgroundServiceEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_BACKGROUND_SERVICE_ENABLED, enabled).apply()
+    }
 
+    /**
+     * Controlla se il servizio background è abilitato
+     */
+    fun isBackgroundServiceEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_BACKGROUND_SERVICE_ENABLED, false)
+    }
     fun setShowDetectionNotifications(context: Context, show: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_SHOW_DETECTION_NOTIFICATIONS, show).apply()
     }

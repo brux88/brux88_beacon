@@ -1,13 +1,12 @@
 # Brux88 Beacon
 
-
-
 A robust Flutter plugin for handling BLE beacons (iBeacon, AltBeacon, Eddystone) with reliable background detection and monitoring capabilities.
 
 ## Features
 
 - 📱 **Cross-platform**: Works on both Android and iOS
 - 🔄 **Background monitoring**: Reliable beacon detection even when the app is in the background
+- 🎛️ **Background service control**: Start, stop, and restart background service independently
 - 🔔 **Notifications**: Customizable notifications for region entry/exit events
 - 🔋 **Battery-optimized**: Configurable scan settings to balance between detection speed and battery usage
 - 🎯 **Region filtering**: Monitor specific beacons or all beacons in range
@@ -15,6 +14,7 @@ A robust Flutter plugin for handling BLE beacons (iBeacon, AltBeacon, Eddystone)
 - 🔒 **Permission handling**: Integrated permission management for location and Bluetooth
 - 📊 **Comprehensive data**: Access to UUID, Major, Minor, RSSI, and TxPower values
 - 🔄 **Boot persistence**: Automatic restart of monitoring service after device reboot
+- 🛠️ **Debug tools**: Built-in logging system for troubleshooting
 
 ## Getting Started
 
@@ -24,7 +24,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  brux88_beacon: ^0.1.0
+  brux88_beacon: ^0.1.3
 ```
 
 ### Platform-specific setup
@@ -95,26 +95,57 @@ await beaconManager.initialize();
 await beaconManager.requestPermissions();
 ```
 
-### Monitoring Beacons
+### Background Service Control
+
+The plugin provides independent control over the background service:
 
 ```dart
-// Start monitoring for all beacons
+// Start background service only
+await beaconManager.startBackgroundService();
+
+// Stop background service
+await beaconManager.stopBackgroundService();
+
+// Restart background service
+await beaconManager.restartBackgroundService();
+
+// Check if background service is running
+bool isRunning = await beaconManager.isBackgroundServiceRunning();
+
+// Enable/disable background service auto-start
+await beaconManager.setBackgroundServiceEnabled(true);
+bool isEnabled = await beaconManager.isBackgroundServiceEnabled();
+```
+
+### Foreground Monitoring
+
+```dart
+// Start foreground monitoring (includes ranging)
 await beaconManager.startMonitoring();
 
-// Or start monitoring for a specific beacon
+// Stop all monitoring
+await beaconManager.stopMonitoring();
+
+// Check if monitoring is active
+bool isMonitoring = await beaconManager.isMonitoringRunning();
+```
+
+### Monitoring Specific Beacons
+
+```dart
+// Set a specific beacon to monitor
 await beaconManager.setBeaconToMonitor(
   uuid: "F7826DA6-4FA2-4E98-8024-BC5B71E0893E",
   major: "1",
   minor: "2",
   enabled: true,
 );
-await beaconManager.startMonitoring();
 
-// Stop monitoring
-await beaconManager.stopMonitoring();
+// Clear selected beacon (monitor all beacons)
+await beaconManager.clearSelectedBeacon();
 ```
 
-### Listening for Beacons
+### Listening for Events
 
 ```dart
 // Listen for beacon detection events
@@ -155,27 +186,267 @@ await beaconManager.setScanSettings(
 );
 ```
 
-### Customizing Notifications
+### Battery Optimization
 
 ```dart
-// Configure notification settings
-await beaconManager.setNotificationSettings(
-  NotificationSettings(
-    enabled: true,
-    channelId: 'beacon_monitoring_channel',
-    channelName: 'Beacon Monitoring',
-    channelDescription: 'Notifications for beacon monitoring',
-    importance: 2, // 1 = low, 2 = default, 3 = high
-    showBadge: false,
-    entryTitle: 'Beacon Detected',
-    entryMessage: 'You have entered a beacon region',
-    exitTitle: 'Beacon Lost',
-    exitMessage: 'You have left a beacon region',
-  ),
-);
+// Check if battery optimization is ignored
+bool isIgnored = await beaconManager.isBatteryOptimizationIgnored();
+
+// Request to ignore battery optimization
+if (!isIgnored) {
+  await beaconManager.requestIgnoreBatteryOptimization();
+}
+
+// Set up recurring alarms to keep the service alive
+await beaconManager.setupRecurringAlarm();
 ```
 
-### Managing Regions
+### Debug and Logging
+
+```dart
+// Enable debug mode for detailed logs
+await beaconManager.enableDebugMode();
+
+// Get logs for troubleshooting
+List<String> logs = await beaconManager.getLogs();
+for (var log in logs) {
+  print(log);
+}
+```
+
+## Complete Example
+
+Here's a complete example showing how to create a beacon monitoring app with background service control:
+
+```dart
+import 'package:flutter/material.dart';
+import 'package:brux88_beacon/brux88_beacon.dart';
+
+class BeaconControlPage extends StatefulWidget {
+  @override
+  _BeaconControlPageState createState() => _BeaconControlPageState();
+}
+
+class _BeaconControlPageState extends State<BeaconControlPage> {
+  final BeaconManager _beaconManager = BeaconManager();
+  
+  bool _isInitialized = false;
+  bool _isBackgroundServiceRunning = false;
+  List<Beacon> _detectedBeacons = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeBeaconManager();
+    _setupListeners();
+  }
+
+  Future<void> _initializeBeaconManager() async {
+    final initialized = await _beaconManager.initialize();
+    setState(() {
+      _isInitialized = initialized;
+    });
+    
+    if (initialized) {
+      await _updateStatus();
+    }
+  }
+
+  void _setupListeners() {
+    _beaconManager.beacons.listen((beacons) {
+      setState(() {
+        _detectedBeacons = beacons;
+      });
+    });
+  }
+
+  Future<void> _updateStatus() async {
+    final isBackgroundRunning = await _beaconManager.isBackgroundServiceRunning();
+    setState(() {
+      _isBackgroundServiceRunning = isBackgroundRunning;
+    });
+  }
+
+  Future<void> _startBackgroundService() async {
+    await _beaconManager.requestPermissions();
+    
+    // Check battery optimization
+    final isBatteryOptimized = await _beaconManager.isBatteryOptimizationIgnored();
+    if (!isBatteryOptimized) {
+      await _beaconManager.requestIgnoreBatteryOptimization();
+    }
+    
+    final success = await _beaconManager.startBackgroundService();
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Background service started')),
+      );
+      await _updateStatus();
+    }
+  }
+
+  Future<void> _stopBackgroundService() async {
+    final success = await _beaconManager.stopBackgroundService();
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Background service stopped')),
+      );
+      await _updateStatus();
+    }
+  }
+
+  Future<void> _restartBackgroundService() async {
+    final success = await _beaconManager.restartBackgroundService();
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Background service restarted')),
+      );
+      await _updateStatus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Beacon Control'),
+        actions: [
+          IconButton(
+            onPressed: _updateStatus,
+            icon: Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: Padding(
+        padding: EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Status Card
+            Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Status', style: Theme.of(context).textTheme.headlineSmall),
+                    SizedBox(height: 8),
+                    Text('Initialized: $_isInitialized'),
+                    Text('Background Service: $_isBackgroundServiceRunning'),
+                    Text('Beacons Detected: ${_detectedBeacons.length}'),
+                  ],
+                ),
+              ),
+            ),
+            
+            SizedBox(height: 16),
+            
+            // Control Buttons
+            Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Background Service Control', 
+                         style: Theme.of(context).textTheme.headlineSmall),
+                    SizedBox(height: 16),
+                    
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _isInitialized && !_isBackgroundServiceRunning 
+                                ? _startBackgroundService 
+                                : null,
+                            child: Text('Start Background'),
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _isInitialized && _isBackgroundServiceRunning 
+                                ? _stopBackgroundService 
+                                : null,
+                            child: Text('Stop Background'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    
+                    SizedBox(height: 8),
+                    
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isInitialized ? _restartBackgroundService : null,
+                        child: Text('Restart Background Service'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            
+            SizedBox(height: 16),
+            
+            // Detected Beacons
+            Expanded(
+              child: Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Detected Beacons', 
+                           style: Theme.of(context).textTheme.headlineSmall),
+                      SizedBox(height: 8),
+                      
+                      if (_detectedBeacons.isEmpty)
+                        Expanded(
+                          child: Center(
+                            child: Text('No beacons detected'),
+                          ),
+                        )
+                      else
+                        Expanded(
+                          child: ListView.builder(
+                            itemCount: _detectedBeacons.length,
+                            itemBuilder: (context, index) {
+                              final beacon = _detectedBeacons[index];
+                              return ListTile(
+                                leading: Icon(Icons.bluetooth),
+                                title: Text('UUID: ${beacon.uuid}'),
+                                subtitle: Text(
+                                  'Distance: ${beacon.distance.toStringAsFixed(2)}m\n'
+                                  'RSSI: ${beacon.rssi} dBm'
+                                ),
+                                trailing: Text('${beacon.distance < 1 ? "NEAR" : beacon.distance < 3 ? "MID" : "FAR"}'),
+                              );
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _beaconManager.dispose();
+    super.dispose();
+  }
+}
+```
+
+## Advanced Features
+
+### Region Management
 
 ```dart
 // Start monitoring a specific region
@@ -195,92 +466,157 @@ await beaconManager.stopMonitoringForRegion("myRegion");
 List<BeaconRegion> regions = await beaconManager.getMonitoredRegions();
 ```
 
-### Battery Optimization
+### Notification Settings
 
 ```dart
-// Check if battery optimization is ignored
-bool isIgnored = await beaconManager.isBatteryOptimizationIgnored();
+// Configure notification settings
+await beaconManager.setNotificationSettings(
+  NotificationSettings(
+    enabled: true,
+    channelId: 'beacon_monitoring_channel',
+    channelName: 'Beacon Monitoring',
+    channelDescription: 'Notifications for beacon monitoring',
+    importance: 2, // 1 = low, 2 = default, 3 = high
+    showBadge: false,
+    entryTitle: 'Beacon Detected',
+    entryMessage: 'You have entered a beacon region',
+    exitTitle: 'Beacon Lost',
+    exitMessage: 'You have left a beacon region',
+  ),
+);
 
-// Request to ignore battery optimization
-if (!isIgnored) {
-  await beaconManager.requestIgnoreBatteryOptimization();
-}
-
-// Set up recurring alarms to keep the service alive
-await beaconManager.setupRecurringAlarm();
+// Control detection notifications separately from service notifications
+await beaconManager.setShowDetectionNotifications(true);
 ```
-
-### Accessing Logs
-
-```dart
-// Get logs for debugging
-List<String> logs = await beaconManager.getLogs();
-for (var log in logs) {
-  print(log);
-}
-
-// Enable debug mode for more detailed logs
-await beaconManager.enableDebugMode();
-```
-
-## Example App
-
-Check the `example` folder for a complete working application that demonstrates how to use the plugin.
 
 ## Supported Beacon Types
 
-- Apple iBeacon
-- AltBeacon
-- Eddystone (UID and URL formats)
+- **Apple iBeacon**: The most common format used by iOS devices and many beacon manufacturers
+- **AltBeacon**: Open source beacon format
+- **Eddystone**: Google's beacon format (UID and URL variants)
 
-## Advanced Configuration
+## Background Service Management
 
-### Android-specific
+The plugin provides granular control over background services:
 
-The plugin uses the AltBeacon library for Android. You can customize various aspects of the library's behavior through the `ScanSettings` class.
+- **Independent Control**: Start/stop background service independently from foreground monitoring
+- **Battery Optimization**: Background service uses optimized scan intervals to preserve battery
+- **Auto-restart**: Service automatically restarts after device reboot if enabled
+- **Status Monitoring**: Real-time status updates for service state
 
-### iOS-specific
+## Performance Considerations
 
-On iOS, the plugin uses CoreLocation and CoreBluetooth APIs. The monitoring settings provided through `ScanSettings` are still respected but are adapted to the iOS platform capabilities.
+### Battery Optimization
+
+- Use longer scan intervals for background monitoring
+- Request battery optimization exclusion for reliable background operation
+- Configure appropriate scan settings based on your use case
+
+### Scan Settings Recommendations
+
+```dart
+// Battery-friendly settings
+ScanSettings(
+  backgroundScanPeriod: 1100,
+  backgroundBetweenScanPeriod: 30000,  // 30 seconds between scans
+  foregroundScanPeriod: 1100,
+  foregroundBetweenScanPeriod: 0,     // Continuous when in foreground
+)
+
+// High-precision settings (more battery usage)
+ScanSettings(
+  backgroundScanPeriod: 1100,
+  backgroundBetweenScanPeriod: 5000,   // 5 seconds between scans
+  foregroundScanPeriod: 1100,
+  foregroundBetweenScanPeriod: 0,
+)
+```
 
 ## Troubleshooting
 
-### Background Monitoring
+### Common Issues
 
-For reliable background monitoring:
+#### Background Monitoring Not Working
 
-1. Ensure all the necessary permissions are granted
-2. On Android, request to ignore battery optimization
-3. Set up a recurring alarm with `setupRecurringAlarm()`
-4. On iOS, ensure background modes are properly configured in Info.plist
+1. Ensure all permissions are granted
+2. Check battery optimization settings
+3. Verify Bluetooth and Location are enabled
+4. Enable debug mode to view detailed logs
 
-### Permission Issues
+```dart
+await beaconManager.enableDebugMode();
+List<String> logs = await beaconManager.getLogs();
+```
 
-If you're experiencing permission issues:
+#### Beacons Not Detected
 
-1. Check the current permission status with `checkPermissions()`
-2. Request necessary permissions with `requestPermissions()`
-3. For Android 12+, request the SCHEDULE_EXACT_ALARM permission explicitly
+1. Verify beacon format compatibility (iBeacon, AltBeacon, Eddystone)
+2. Check signal strength and distance
+3. Ensure beacon is advertising correctly
+4. Review scan settings
 
-### Beacon Detection
+#### Service Stops Unexpectedly
 
-If beacons are not being detected:
+1. Request battery optimization exclusion
+2. Set up recurring alarms for service restart
+3. Check device-specific power management settings
 
-1. Verify Bluetooth is enabled with `isBluetoothEnabled()`
-2. Verify Location is enabled with `isLocationEnabled()`
-3. Check if the beacon is using a supported format (iBeacon, AltBeacon, Eddystone)
-4. Enable debug mode for more detailed logs with `enableDebugMode()`
-5. Check the logs with `getLogs()`
+### Debug Information
+
+```dart
+// Check system status
+bool bluetoothEnabled = await beaconManager.isBluetoothEnabled();
+bool locationEnabled = await beaconManager.isLocationEnabled();
+Map<String, bool> permissions = await beaconManager.checkPermissions();
+
+// Get detailed logs
+await beaconManager.enableDebugMode();
+List<String> logs = await beaconManager.getLogs();
+```
+
+## Platform Differences
+
+### Android
+
+- Uses AltBeacon library for beacon detection
+- Requires foreground service for background operation
+- Battery optimization exclusion recommended
+- Supports all beacon formats
+
+### iOS
+
+- Uses CoreLocation and CoreBluetooth APIs
+- Background execution managed by iOS
+- Limited background scanning time
+- Optimized for iBeacon format
+
+## Migration Guide
+
+### From 0.1.2 to 0.1.3
+
+- Added independent background service control methods
+- Enhanced notification management
+- Improved battery optimization handling
+
+No breaking changes - all existing code continues to work.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
 - The Android implementation uses the [AltBeacon library](https://github.com/AltBeacon/android-beacon-library)
 - The iOS implementation uses native CoreLocation and CoreBluetooth APIs
 
-## Contributing
+## Support
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+For support, please open an issue on [GitHub](https://github.com/brux88/brux88_beacon/issues) or contact the maintainer.
+
+---
+
+**Note**: This plugin is actively maintained and tested on Flutter 3.3.0+. For older Flutter versions, please use an earlier version of this plugin.

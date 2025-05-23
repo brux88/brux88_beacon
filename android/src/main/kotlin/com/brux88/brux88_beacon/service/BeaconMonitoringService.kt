@@ -63,7 +63,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
         }
     }
     // Implementazione di RangeNotifier
-    override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {
+   override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {
         if (beacons.isNotEmpty()) {
             val beacon = beacons.first()
             val logMessage = "Beacon: ID=${beacon.id1}, Distanza=${String.format("%.2f", beacon.distance)}m, RSSI=${beacon.rssi}"
@@ -71,24 +71,22 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             logRepository.addLog(logMessage)
 
             if (PreferenceUtils.shouldShowDetectionNotifications(this)){
+                // Crea messaggio specifico per la modalità
+                val notificationTitle = if (isBackgroundOnly) {
+                    "Beacon rilevato (Background)"
+                } else {
+                    "Beacon rilevato"
+                }
+                
                 // Aggiorna sempre la notifica del servizio in foreground
                 val notification = NotificationUtils.createServiceNotification(
                     this,
-                    "Beacon rilevato",
+                    notificationTitle,
                     "UUID: ${beacon.id1}, Distanza: ${String.format("%.2f", beacon.distance)}m"
                 )
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.notify(FOREGROUND_NOTIFICATION_ID, notification)
             }
-            // Mostra una notifica di rilevamento solo se abilitata
-            // Questo è un'opzione aggiuntiva che puoi mostrare oltre alla notifica del servizio
-            /*if (PreferenceUtils.shouldShowDetectionNotifications(this)) {
-                NotificationUtils.showBeaconDetectedNotification(
-                    this,
-                    "Nuovo beacon rilevato",
-                    "UUID: ${beacon.id1}, Distanza: ${String.format("%.2f", beacon.distance)}m"
-                )
-            }*/
         }
     }
 
@@ -96,6 +94,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
     //ID per gestire il servizio in foreground
     private val FOREGROUND_NOTIFICATION_ID = 1
     private val CHANNEL_ID = "beacon_monitoring_channel"
+    private var isBackgroundOnly = false // Nuova proprietà
 
     // La regione attiva per il monitoraggio
     private lateinit var activeRegion: Region
@@ -125,10 +124,20 @@ class BeaconMonitoringService : Service(), RangeNotifier {
         logRepository.addLog("Servizio beacon creato")
     }
  
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "Service onStartCommand")
         
-        // Verifica lo stato del Bluetooth
+        // Controlla se il servizio deve funzionare solo in background
+        isBackgroundOnly = intent?.getBooleanExtra("backgroundOnly", false) ?: false
+        
+        // Verifica se il servizio background è abilitato nelle preferenze
+        if (isBackgroundOnly && !PreferenceUtils.isBackgroundServiceEnabled(this)) {
+            Log.d(TAG, "Servizio background non abilitato, arresto servizio")
+            logRepository.addLog("SERVIZIO: Background non abilitato, arresto")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        
         // Gestisci l'azione BLUETOOTH_READY
         if (intent != null && "com.brux88.brux88_beacon.BLUETOOTH_READY".equals(intent.action)) {
             Log.d(TAG, "Ricevuta notifica Bluetooth pronto")
@@ -151,10 +160,17 @@ class BeaconMonitoringService : Service(), RangeNotifier {
         // Creazione del canale di notifica (richiesto per Android 8.0+)
         createNotificationChannel()
     
+        // Crea notifica con testo diverso in base alla modalità
+        val notificationText = if (isBackgroundOnly) {
+            "Monitoraggio beacon in background"
+        } else {
+            "Monitoraggio beacon attivo"
+        }
+        
         // Avvio del servizio in foreground
         startForeground(
             FOREGROUND_NOTIFICATION_ID,
-            createNotification("Monitoraggio beacon attivo")
+            createNotification(notificationText)
         )
     
         // Ottieni la regione attiva (specifica o generica in base alla selezione)
@@ -169,11 +185,22 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             RegionUtils.ALL_BEACONS_REGION
         }
         
-        // Configura ENTRAMBI i tipi di scansione
-        beaconManager.foregroundBetweenScanPeriod = 0       // Scansione continua in foreground
-        beaconManager.foregroundScanPeriod = 1100           // 1.1 secondi
-        beaconManager.backgroundBetweenScanPeriod = 5000    // 5 secondi tra le scansioni in background
-        beaconManager.backgroundScanPeriod = 1100           // 1.1 secondi
+        // Configura i periodi di scansione in base alla modalità
+        if (isBackgroundOnly) {
+            // Modalità background - scansioni meno frequenti per risparmiare batteria
+            beaconManager.foregroundBetweenScanPeriod = 10000    // 10 secondi tra le scansioni
+            beaconManager.foregroundScanPeriod = 1100            // 1.1 secondi di scansione
+            beaconManager.backgroundBetweenScanPeriod = 30000    // 30 secondi tra le scansioni in background
+            beaconManager.backgroundScanPeriod = 1100            // 1.1 secondi
+            logRepository.addLog("SERVIZIO: Configurato per modalità background only")
+        } else {
+            // Modalità normale - scansioni più frequenti
+            beaconManager.foregroundBetweenScanPeriod = 0        // Scansione continua in foreground
+            beaconManager.foregroundScanPeriod = 1100            // 1.1 secondi
+            beaconManager.backgroundBetweenScanPeriod = 5000     // 5 secondi tra le scansioni in background
+            beaconManager.backgroundScanPeriod = 1100            // 1.1 secondi
+            logRepository.addLog("SERVIZIO: Configurato per modalità normale")
+        }
         
         try {
             // Forza aggiornamento dei periodi di scansione
@@ -191,21 +218,33 @@ class BeaconMonitoringService : Service(), RangeNotifier {
         beaconManager.addMonitorNotifier(object : MonitorNotifier {
             override fun didEnterRegion(region: Region) {
                 Log.d(TAG, "SERVIZIO: Entrato nella regione ${region.uniqueId}")
-                // Forza una notifica immediata
+                val message = if (isBackgroundOnly) {
+                    "Beacon rilevato in background - ${region.uniqueId}"
+                } else {
+                    "Sei entrato nella regione ${region.uniqueId}"
+                }
+                
+                // Aggiorna sempre la notifica del servizio in foreground
                 NotificationUtils.updateNotification(
                     this@BeaconMonitoringService,
                     "Beacon rilevato",
-                    "Sei entrato nella regione ${region.uniqueId}"
+                    message
                 )
             }
     
             override fun didExitRegion(region: Region) {
                 Log.d(TAG, "SERVIZIO: Uscito dalla regione ${region.uniqueId}")
-                // Forza una notifica immediata
+                val message = if (isBackgroundOnly) {
+                    "Beacon perso in background - ${region.uniqueId}"
+                } else {
+                    "Sei uscito dalla regione ${region.uniqueId}"
+                }
+                
+                // Aggiorna sempre la notifica del servizio in foreground
                 NotificationUtils.updateNotification(
                     this@BeaconMonitoringService,
                     "Beacon perso",
-                    "Sei uscito dalla regione ${region.uniqueId}"
+                    message
                 )
             }
     
@@ -215,8 +254,8 @@ class BeaconMonitoringService : Service(), RangeNotifier {
             }
         })
     
-        // Se il servizio viene terminato dal sistema, verrà riavviato
-        return START_STICKY
+        // Se il servizio viene terminato dal sistema, verrà riavviato solo se non è background only
+        return if (isBackgroundOnly) START_STICKY else START_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -251,7 +290,13 @@ class BeaconMonitoringService : Service(), RangeNotifier {
     }
 
     override fun onDestroy() {
-        Log.d(TAG, "Service onDestroy")
+        Log.d(TAG, "Service onDestroy - Background only: $isBackgroundOnly")
+        
+        // Se è un servizio background only, segna come disabilitato
+        if (isBackgroundOnly) {
+            PreferenceUtils.setBackgroundServiceEnabled(this, false)
+            logRepository.addLog("SERVIZIO: Background service disabilitato al destroy")
+        }
 
         // Rilascio del WakeLock per evitare drain della batteria
         wakeLock?.let {
@@ -263,8 +308,11 @@ class BeaconMonitoringService : Service(), RangeNotifier {
 
         // Ferma il monitoraggio dei beacon
         try {
-            beaconManager.stopRangingBeaconsInRegion(activeRegion)
-            logRepository.addLog("Ranging dei beacon fermato")
+            if (::activeRegion.isInitialized) {
+                beaconManager.stopRangingBeaconsInRegion(activeRegion)
+                beaconManager.stopMonitoringBeaconsInRegion(activeRegion)
+                logRepository.addLog("Ranging dei beacon fermato")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Errore nell'arresto del ranging: ${e.message}")
         }
@@ -272,7 +320,7 @@ class BeaconMonitoringService : Service(), RangeNotifier {
 
         super.onDestroy()
     }
-
+    
     override fun onBind(intent: Intent?): IBinder? {
         return null
     }

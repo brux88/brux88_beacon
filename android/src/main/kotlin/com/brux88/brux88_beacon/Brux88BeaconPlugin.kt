@@ -207,7 +207,22 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                     val show = call.arguments as? Boolean ?: true
                     setShowDetectionNotifications(show, result)
                 }
-
+                "startBackgroundService" -> {
+                    startBackgroundService(result)
+                }
+                "stopBackgroundService" -> {
+                    stopBackgroundService(result)
+                }
+                "isBackgroundServiceRunning" -> {
+                    isBackgroundServiceRunning(result)
+                }
+                "setBackgroundServiceEnabled" -> {
+                    val enabled = call.arguments as? Boolean ?: false
+                    setBackgroundServiceEnabled(enabled, result)
+                }
+                "isBackgroundServiceEnabled" -> {
+                    isBackgroundServiceEnabled(result)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -1342,4 +1357,137 @@ private fun requestExactAlarmPermission(result: Result) {
       Log.d(TAG, "Plugin staccato da Activity")
       logRepository.addLog("Plugin staccato da Activity")
   }
+
+  private fun startBackgroundService(result: Result) {
+        try {
+            Log.d(TAG, "Avvio servizio background")
+            logRepository.addLog("Avvio servizio background")
+            
+            // Verifica se il Bluetooth è abilitato
+            val bluetoothAdapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
+            if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled) {
+                result.error("BLUETOOTH_DISABLED", "Bluetooth non disponibile o disabilitato", null)
+                return
+            }
+            
+            // Imposta il flag che il servizio background è abilitato
+            PreferenceUtils.setBackgroundServiceEnabled(context, true)
+            
+            // Avvia il servizio in foreground
+            val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
+            serviceIntent.putExtra("backgroundOnly", true)
+            
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+                logRepository.addLog("Servizio background avviato con successo")
+                result.success(true)
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore nell'avvio del servizio background: ${e.message}", e)
+                logRepository.addLog("ERRORE nell'avvio del servizio background: ${e.message}")
+                result.error("SERVICE_START_ERROR", "Errore nell'avvio del servizio background: ${e.message}", null)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'avvio del servizio background: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'avvio del servizio background: ${e.message}")
+            result.error("BACKGROUND_SERVICE_ERROR", "Errore nell'avvio del servizio background: ${e.message}", null)
+        }
+    }
+
+    private fun stopBackgroundService(result: Result) {
+        try {
+            Log.d(TAG, "Arresto servizio background")
+            logRepository.addLog("Arresto servizio background")
+            
+            // Imposta il flag che il servizio background è disabilitato
+            PreferenceUtils.setBackgroundServiceEnabled(context, false)
+            
+            // Ferma il servizio
+            val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
+            context.stopService(serviceIntent)
+            
+            // Cancella anche l'allarme ricorrente se presente
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val alarmIntent = Intent(context, BeaconMonitoringService::class.java)
+            val pendingIntent = PendingIntent.getService(
+                context,
+                0,
+                alarmIntent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            
+            logRepository.addLog("Servizio background arrestato con successo")
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'arresto del servizio background: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'arresto del servizio background: ${e.message}")
+            result.error("BACKGROUND_SERVICE_STOP_ERROR", "Errore nell'arresto del servizio background: ${e.message}", null)
+        }
+    }
+
+    private fun isBackgroundServiceRunning(result: Result) {
+        try {
+            val isServiceRunning = isServiceRunning(context, BeaconMonitoringService::class.java)
+            val isEnabledInPrefs = PreferenceUtils.isBackgroundServiceEnabled(context)
+            
+            // Il servizio è considerato in esecuzione se è effettivamente attivo E abilitato nelle preferenze
+            val isRunning = isServiceRunning && isEnabledInPrefs
+            
+            Log.d(TAG, "Stato servizio background: running=$isServiceRunning, enabled=$isEnabledInPrefs, active=$isRunning")
+            logRepository.addLog("Stato servizio background: running=$isServiceRunning, enabled=$isEnabledInPrefs, active=$isRunning")
+            
+            result.success(isRunning)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel controllo stato servizio background: ${e.message}", e)
+            logRepository.addLog("ERRORE nel controllo stato servizio background: ${e.message}")
+            result.error("BACKGROUND_SERVICE_CHECK_ERROR", "Errore nel controllo stato servizio background: ${e.message}", null)
+        }
+    }
+
+    private fun setBackgroundServiceEnabled(enabled: Boolean, result: Result) {
+        try {
+            Log.d(TAG, "Impostazione servizio background abilitato: $enabled")
+            logRepository.addLog("Impostazione servizio background abilitato: $enabled")
+            
+            PreferenceUtils.setBackgroundServiceEnabled(context, enabled)
+            
+            if (enabled) {
+                // Se abilitato, avvia il servizio se non è già in esecuzione
+                if (!isServiceRunning(context, BeaconMonitoringService::class.java)) {
+                    startBackgroundService(result)
+                    return
+                }
+            } else {
+                // Se disabilitato, ferma il servizio se è in esecuzione
+                if (isServiceRunning(context, BeaconMonitoringService::class.java)) {
+                    stopBackgroundService(result)
+                    return
+                }
+            }
+            
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'impostazione servizio background: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'impostazione servizio background: ${e.message}")
+            result.error("BACKGROUND_SERVICE_SETTING_ERROR", "Errore nell'impostazione servizio background: ${e.message}", null)
+        }
+    }
+
+    private fun isBackgroundServiceEnabled(result: Result) {
+        try {
+            val isEnabled = PreferenceUtils.isBackgroundServiceEnabled(context)
+            Log.d(TAG, "Servizio background abilitato: $isEnabled")
+            logRepository.addLog("Servizio background abilitato: $isEnabled")
+            result.success(isEnabled)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel controllo abilitazione servizio background: ${e.message}", e)
+            logRepository.addLog("ERRORE nel controllo abilitazione servizio background: ${e.message}")
+            result.error("BACKGROUND_SERVICE_ENABLED_CHECK_ERROR", "Errore nel controllo abilitazione servizio background: ${e.message}", null)
+        }
+    }
 }

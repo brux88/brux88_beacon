@@ -1,6 +1,6 @@
 name: brux88_beacon
 description: A Flutter plugin for handling BLE beacons with background detection and reliable monitoring.
-version: 0.1.3
+version: 0.1.4
 homepage: https://github.com/brux88/brux88_beacon
 
 environment:

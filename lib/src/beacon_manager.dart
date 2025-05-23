@@ -154,6 +154,57 @@ class BeaconManager {
     return await _methodChannel.invokeMethod<bool>('stopMonitoring') ?? false;
   }
 
+  // ===== NUOVE FUNZIONALITÀ PER CONTROLLO SERVIZIO BACKGROUND =====
+
+  /// Start only the background service without foreground monitoring
+  Future<bool> startBackgroundService() async {
+    if (!_isInitialized) await initialize();
+    return await _methodChannel.invokeMethod<bool>('startBackgroundService') ??
+        false;
+  }
+
+  /// Stop only the background service
+  Future<bool> stopBackgroundService() async {
+    return await _methodChannel.invokeMethod<bool>('stopBackgroundService') ??
+        false;
+  }
+
+  /// Restart the background service
+  Future<bool> restartBackgroundService() async {
+    try {
+      await stopBackgroundService();
+      // Piccola pausa per assicurarsi che il servizio sia completamente fermato
+      await Future.delayed(Duration(milliseconds: 500));
+      return await startBackgroundService();
+    } catch (e) {
+      print('Error restarting background service: $e');
+      return false;
+    }
+  }
+
+  /// Check if the background service is running
+  Future<bool> isBackgroundServiceRunning() async {
+    return await _methodChannel
+            .invokeMethod<bool>('isBackgroundServiceRunning') ??
+        false;
+  }
+
+  /// Enable/disable background service auto-start
+  Future<bool> setBackgroundServiceEnabled(bool enabled) async {
+    return await _methodChannel.invokeMethod<bool>(
+            'setBackgroundServiceEnabled', enabled) ??
+        false;
+  }
+
+  /// Check if background service auto-start is enabled
+  Future<bool> isBackgroundServiceEnabled() async {
+    return await _methodChannel
+            .invokeMethod<bool>('isBackgroundServiceEnabled') ??
+        false;
+  }
+
+  // ===== FINE NUOVE FUNZIONALITÀ =====
+
   /// Start monitoring for a specific region
   Future<bool> startMonitoringForRegion(BeaconRegion region) async {
     if (!_isInitialized) await initialize();
