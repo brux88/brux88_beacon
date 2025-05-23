@@ -135,23 +135,69 @@ class BeaconManager {
         false;
   }
 
+  // ===== MONITORAGGIO FOREGROUND SEPARATO =====
+
+  /// Start only foreground monitoring (ranging) without background service
+  Future<bool> startForegroundMonitoringOnly() async {
+    if (!_isInitialized) await initialize();
+    return await _methodChannel
+            .invokeMethod<bool>('startForegroundMonitoringOnly') ??
+        false;
+  }
+
+  /// Stop only foreground monitoring without affecting background service
+  Future<bool> stopForegroundMonitoringOnly() async {
+    return await _methodChannel
+            .invokeMethod<bool>('stopForegroundMonitoringOnly') ??
+        false;
+  }
+
+  /// Check if foreground monitoring is running
+  Future<bool> isForegroundMonitoringRunning() async {
+    return await _methodChannel
+            .invokeMethod<bool>('isForegroundMonitoringRunning') ??
+        false;
+  }
+
+  // ===== CONTROLLO COMPLETO =====
+
+  /// Start COMPLETE monitoring (both foreground ranging and background service)
+  /// This is the same as the original startMonitoring() but now it's clear what it does
+  Future<bool> startCompleteMonitoring() async {
+    if (!_isInitialized) await initialize();
+    return await _methodChannel.invokeMethod<bool>('startMonitoring') ?? false;
+  }
+
+  /// Stop COMPLETE monitoring (both foreground ranging and background service)
+  /// This is the same as the original stopMonitoring() but now it's clear what it does
+  Future<bool> stopCompleteMonitoring() async {
+    return await _methodChannel.invokeMethod<bool>('stopMonitoring') ?? false;
+  }
+
+  // ===== METODI LEGACY (mantenuti per compatibilità) =====
+
   /// Start monitoring for beacons
+  /// NOTE: This starts BOTH foreground and background monitoring
+  /// Use startForegroundMonitoringOnly() or startBackgroundService() for specific control
   Future<bool> startMonitoring() async {
     if (!_isInitialized) await initialize();
     return await _methodChannel.invokeMethod<bool>('startMonitoring') ?? false;
   }
 
-  Future<SelectedBeacon?> getSelectedBeacon() async {
-    final resultMap = await _methodChannel
-        .invokeMethod<Map<dynamic, dynamic>>('getSelectedBeacon');
-    if (resultMap == null) return null;
-
-    return SelectedBeacon.fromMap(resultMap);
-  }
-
   /// Stop monitoring for beacons
+  /// NOTE: This stops BOTH foreground and background monitoring
+  /// Use stopForegroundMonitoringOnly() or stopBackgroundService() for specific control
   Future<bool> stopMonitoring() async {
     return await _methodChannel.invokeMethod<bool>('stopMonitoring') ?? false;
+  }
+
+  /// Check if beacon monitoring is running
+  /// NOTE: This returns true if EITHER foreground OR background is running
+  /// Use isForegroundMonitoringRunning() or isBackgroundServiceRunning() for specific status
+  Future<bool> isMonitoringRunning() async {
+    final foregroundRunning = await isForegroundMonitoringRunning();
+    final backgroundRunning = await isBackgroundServiceRunning();
+    return foregroundRunning || backgroundRunning;
   }
 
   // ===== NUOVE FUNZIONALITÀ PER CONTROLLO SERVIZIO BACKGROUND =====
@@ -334,12 +380,6 @@ class BeaconManager {
         false;
   }
 
-  /// Check if beacon monitoring is running
-  Future<bool> isMonitoringRunning() async {
-    return await _methodChannel.invokeMethod<bool>('isMonitoringRunning') ??
-        false;
-  }
-
   /// Non influisce sulle notifiche del servizio in foreground
   Future<bool> setShowDetectionNotifications(bool show) async {
     return await _methodChannel.invokeMethod<bool>(
@@ -349,8 +389,84 @@ class BeaconManager {
 
   /// Request necessary permissions
   Future<bool> requestPermissions() async {
-    return await _methodChannel.invokeMethod<bool>('requestPermissions') ??
-        false;
+    try {
+      // Il metodo requestPermissions su Android restituisce una Map dei permessi
+      // invece di un semplice bool, quindi gestiamo entrambi i casi
+      final result = await _methodChannel.invokeMethod('requestPermissions');
+
+      if (result is bool) {
+        return result;
+      } else if (result is Map) {
+        // Se restituisce una mappa, controlliamo che tutti i permessi essenziali siano concessi
+        final permissionsMap = Map<String, bool>.from(result);
+
+        // Permessi essenziali che devono essere tutti true
+        final essentialPermissions = ['location'];
+
+        // Su Android 12+, aggiungi i permessi Bluetooth
+        if (Platform.isAndroid) {
+          essentialPermissions.addAll(['bluetoothScan', 'bluetoothConnect']);
+        }
+
+        // Controlla se tutti i permessi essenziali sono concessi
+        for (String permission in essentialPermissions) {
+          if (permissionsMap[permission] != true) {
+            print('Permission $permission not granted');
+            return false;
+          }
+        }
+
+        return true;
+      } else {
+        print(
+            'Unexpected result type from requestPermissions: ${result.runtimeType}');
+        return false;
+      }
+    } catch (e) {
+      print('Error requesting permissions: $e');
+      return false;
+    }
+  }
+
+  /// Request permissions and get detailed status
+  Future<Map<String, dynamic>> getDetailedPermissions() async {
+    try {
+      final result = await _methodChannel
+          .invokeMethod<Map<dynamic, dynamic>>('getDetailedPermissions');
+      if (result != null) {
+        return Map<String, dynamic>.from(result);
+      } else {
+        return {};
+      }
+    } catch (e) {
+      print('Error getting detailed permissions: $e');
+      return {};
+    }
+  }
+
+  /// Request permissions and get detailed status (legacy method)
+  Future<Map<String, bool>> requestPermissionsDetailed() async {
+    try {
+      final result = await _methodChannel.invokeMethod('requestPermissions');
+
+      if (result is Map) {
+        return Map<String, bool>.from(result);
+      } else if (result is bool) {
+        // Se restituisce un bool, assumiamo che tutti i permessi base siano nel suo stato
+        return {
+          'location': result,
+          'bluetoothScan': result,
+          'bluetoothConnect': result,
+          'notifications': result,
+          'backgroundLocation': result,
+        };
+      } else {
+        return {};
+      }
+    } catch (e) {
+      print('Error requesting detailed permissions: $e');
+      return {};
+    }
   }
 
   /// Verifica se il Bluetooth è abilitato

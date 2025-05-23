@@ -223,6 +223,18 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 "isBackgroundServiceEnabled" -> {
                     isBackgroundServiceEnabled(result)
                 }
+                "getDetailedPermissions" -> {
+                    getDetailedPermissions(result)
+                }
+                "startForegroundMonitoringOnly" -> {
+                    startForegroundMonitoringOnly(result)
+                }
+                "stopForegroundMonitoringOnly" -> {
+                    stopForegroundMonitoringOnly(result)
+                }
+                "isForegroundMonitoringRunning" -> {
+                    isForegroundMonitoringRunning(result)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -231,6 +243,185 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             logRepository.addLog("ERRORE in onMethodCall: ${e.message}")
             Log.e(TAG, "Errore in onMethodCall: ${e.message}", e)
             result.error("INTERNAL_ERROR", "Si è verificato un errore interno: ${e.message}", null)
+        }
+    }
+    private fun startForegroundMonitoringOnly(result: Result) {
+        try {
+            Log.d(TAG, "Avvio monitoraggio SOLO foreground")
+            logRepository.addLog("Avvio monitoraggio SOLO foreground")
+            
+            // Verifica se abbiamo un beacon selezionato
+            val selectedBeacon = PreferenceUtils.getSelectedBeacon(context)
+            val region = if (selectedBeacon != null && PreferenceUtils.isSelectedBeaconEnabled(context)) {
+                Log.d(TAG, "Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
+                logRepository.addLog("Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
+                RegionUtils.createRegionForBeacon(selectedBeacon)
+            } else {
+                Log.d(TAG, "Monitoraggio di tutti i beacon")
+                logRepository.addLog("Monitoraggio di tutti i beacon")
+                RegionUtils.ALL_BEACONS_REGION
+            }
+            
+            // Salva la regione attiva
+            activeRegion = region
+            
+            // Avvia SOLO il ranging e il monitoraggio (NO servizio background)
+            beaconManager.startRangingBeaconsInRegion(region)
+            beaconManager.startMonitoringBeaconsInRegion(region)
+            
+            Log.d(TAG, "Ranging e monitoraggio foreground avviati nella regione: ${region.uniqueId}")
+            logRepository.addLog("Ranging e monitoraggio foreground avviati nella regione: ${region.uniqueId}")
+            
+            // Salva lo stato di monitoraggio FOREGROUND
+            PreferenceUtils.setForegroundMonitoringEnabled(context, true)
+            
+            // NON avviare il servizio background qui
+            
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'avvio del monitoraggio foreground: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'avvio del monitoraggio foreground: ${e.message}")
+            result.error("START_FOREGROUND_MONITORING_ERROR", "Errore nell'avvio del monitoraggio foreground: ${e.message}", null)
+        }
+    }
+
+    private fun stopForegroundMonitoringOnly(result: Result) {
+        try {
+            Log.d(TAG, "Arresto monitoraggio SOLO foreground")
+            logRepository.addLog("Arresto monitoraggio SOLO foreground")
+            
+            // Ferma SOLO il ranging e il monitoraggio (NON il servizio background)
+            if (::activeRegion.isInitialized) {
+                beaconManager.stopRangingBeaconsInRegion(activeRegion)
+                beaconManager.stopMonitoringBeaconsInRegion(activeRegion)
+                Log.d(TAG, "Ranging e monitoraggio foreground fermati nella regione: ${activeRegion.uniqueId}")
+                logRepository.addLog("Ranging e monitoraggio foreground fermati nella regione: ${activeRegion.uniqueId}")
+            } else {
+                // Se non abbiamo una regione attiva, ferma tutto il ranging
+                beaconManager.rangedRegions.forEach { region ->
+                    beaconManager.stopRangingBeaconsInRegion(region)
+                }
+                beaconManager.monitoredRegions.forEach { region ->
+                    beaconManager.stopMonitoringBeaconsInRegion(region)
+                }
+                Log.d(TAG, "Fermati tutti i ranging e monitoraggi foreground")
+                logRepository.addLog("Fermati tutti i ranging e monitoraggi foreground")
+            }
+            
+            // Aggiorna lo stato di monitoraggio FOREGROUND
+            PreferenceUtils.setForegroundMonitoringEnabled(context, false)
+            
+            // NON fermare il servizio background qui - rimane indipendente
+            
+            result.success(true)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nell'arresto del monitoraggio foreground: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'arresto del monitoraggio foreground: ${e.message}")
+            result.error("STOP_FOREGROUND_MONITORING_ERROR", "Errore nell'arresto del monitoraggio foreground: ${e.message}", null)
+        }
+    }
+
+    private fun isForegroundMonitoringRunning(result: Result) {
+        try {
+            // Controlla se ci sono regioni in ranging (foreground)
+            val hasRangedRegions = beaconManager.rangedRegions.isNotEmpty()
+            val isForegroundEnabled = PreferenceUtils.isForegroundMonitoringEnabled(context)
+            
+            val isRunning = hasRangedRegions && isForegroundEnabled
+            
+            Log.d(TAG, "Stato monitoraggio foreground: rangedRegions=$hasRangedRegions, enabled=$isForegroundEnabled, running=$isRunning")
+            logRepository.addLog("Stato monitoraggio foreground: ranging=$hasRangedRegions, enabled=$isForegroundEnabled, running=$isRunning")
+            
+            result.success(isRunning)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel controllo stato monitoraggio foreground: ${e.message}", e)
+            logRepository.addLog("ERRORE nel controllo stato monitoraggio foreground: ${e.message}")
+            result.error("FOREGROUND_MONITORING_CHECK_ERROR", "Errore nel controllo stato monitoraggio foreground: ${e.message}", null)
+        }
+    }
+    private fun getDetailedPermissions(result: Result) {
+        try {
+            val permissionsMap = mutableMapOf<String, Any>()
+            
+            // Controlla i permessi di localizzazione
+            val locationGranted = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            val coarseLocationGranted = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            permissionsMap["location"] = locationGranted
+            permissionsMap["coarseLocation"] = coarseLocationGranted
+            
+            // Controlla i permessi Bluetooth per Android 12+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                permissionsMap["bluetoothScan"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.BLUETOOTH_SCAN
+                ) == PackageManager.PERMISSION_GRANTED
+                
+                permissionsMap["bluetoothConnect"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                permissionsMap["bluetoothScan"] = true
+                permissionsMap["bluetoothConnect"] = true
+            }
+            
+            // Controlla i permessi di notifica per Android 13+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionsMap["notifications"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                permissionsMap["notifications"] = true
+            }
+            
+            // Controlla il permesso di localizzazione in background per Android 10+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                permissionsMap["backgroundLocation"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                permissionsMap["backgroundLocation"] = true
+            }
+            
+            // Aggiungi informazioni aggiuntive sullo stato del sistema
+            permissionsMap["androidVersion"] = Build.VERSION.SDK_INT
+            permissionsMap["packageName"] = context.packageName
+            
+            // Controlla se la batteria è ottimizzata
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                permissionsMap["batteryOptimizationIgnored"] = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            } else {
+                permissionsMap["batteryOptimizationIgnored"] = true
+            }
+            
+            // Controlla se può schedulare allarmi esatti (Android 12+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+                permissionsMap["canScheduleExactAlarms"] = alarmManager.canScheduleExactAlarms()
+            } else {
+                permissionsMap["canScheduleExactAlarms"] = true
+            }
+            
+            Log.d(TAG, "Permessi dettagliati: $permissionsMap")
+            logRepository.addLog("Permessi dettagliati ottenuti: ${permissionsMap.size} elementi")
+            
+            result.success(permissionsMap)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nel recupero permessi dettagliati: ${e.message}", e)
+            logRepository.addLog("ERRORE nel recupero permessi dettagliati: ${e.message}")
+            result.error("DETAILED_PERMISSIONS_ERROR", "Errore nel recupero permessi dettagliati: ${e.message}", null)
         }
     }
     private fun isMonitoringRunning(result: Result) {
@@ -676,150 +867,98 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
 
     private fun startMonitoring(result: Result) {
         try {
-            Log.d(TAG, "Avvio monitoraggio beacon")
-            logRepository.addLog("Avvio monitoraggio beacon")
-                    // Impostare l'allarme per il riavvio periodico
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, BeaconMonitoringService::class.java)
-        val pendingIntent = PendingIntent.getService(
-            context,
-            0,
-            intent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-        )
-
-        // Intervallo di 15 minuti
-        val interval = 15 * 60 * 1000L
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            alarmManager.setExactAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + interval,
-                pendingIntent
-            )
-        } else {
-            alarmManager.setExact(
-                AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + interval,
-                pendingIntent
-            )
-        }
-        
-        logRepository.addLog("Allarme impostato per il riavvio periodico del servizio")
-            // Verifica se abbiamo un beacon selezionato
-            val selectedBeacon = PreferenceUtils.getSelectedBeacon(context)
-            val region = if (selectedBeacon != null && PreferenceUtils.isSelectedBeaconEnabled(context)) {
-                Log.d(TAG, "Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
-                logRepository.addLog("Monitoraggio beacon specifico: ${selectedBeacon.uuid}")
-                RegionUtils.createRegionForBeacon(selectedBeacon)
-            } else {
-                Log.d(TAG, "Monitoraggio di tutti i beacon")
-                logRepository.addLog("Monitoraggio di tutti i beacon")
-                RegionUtils.ALL_BEACONS_REGION
-            }
+            Log.d(TAG, "Avvio monitoraggio COMPLETO (foreground + background)")
+            logRepository.addLog("Avvio monitoraggio COMPLETO (foreground + background)")
             
-            // Salva la regione attiva
-            activeRegion = region
-            
-            // Avvia il ranging e il monitoraggio
-            beaconManager.startRangingBeaconsInRegion(region)
-            beaconManager.startMonitoringBeaconsInRegion(region)
-            
-            Log.d(TAG, "Ranging e monitoraggio avviati nella regione: ${region.uniqueId}")
-            logRepository.addLog("Ranging e monitoraggio avviati nella regione: ${region.uniqueId}")
-            
-            // Salva lo stato di monitoraggio
-            PreferenceUtils.setMonitoringEnabled(context, true)
-            beaconBootstrapper?.startBootstrapping(activeRegion)
-
-            // Avvia il servizio in foreground
-            val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
+            // Prima avvia il monitoraggio foreground
+            startForegroundMonitoringOnly(object : Result {
+                override fun success(foregroundResult: Any?) {
+                    if (foregroundResult == true) {
+                        // Poi avvia il servizio background
+                        startBackgroundService(object : Result {
+                            override fun success(backgroundResult: Any?) {
+                                val overallSuccess = (foregroundResult == true) && (backgroundResult == true)
+                                Log.d(TAG, "Monitoraggio completo: foreground=${foregroundResult}, background=${backgroundResult}, overall=${overallSuccess}")
+                                logRepository.addLog("Monitoraggio completo avviato: foreground=${foregroundResult}, background=${backgroundResult}")
+                                result.success(overallSuccess)
+                            }
+                            
+                            override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                                Log.e(TAG, "Errore avvio background durante monitoraggio completo: $errorMessage")
+                                logRepository.addLog("ERRORE avvio background durante monitoraggio completo: $errorMessage")
+                                // Anche se il background fallisce, il foreground è attivo
+                                result.success(true)
+                            }
+                            
+                            override fun notImplemented() {
+                                result.notImplemented()
+                            }
+                        })
+                    } else {
+                        result.success(false)
+                    }
                 }
-                logRepository.addLog("Servizio di monitoraggio avviato")
-            } catch (e: Exception) {
-                Log.e(TAG, "Errore nell'avvio del servizio: ${e.message}", e)
-                logRepository.addLog("ERRORE nell'avvio del servizio: ${e.message}")
-                // Continuiamo comunque, il monitoraggio funzionerà in foreground
-            }
+                
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                    result.error(errorCode, errorMessage, errorDetails)
+                }
+                
+                override fun notImplemented() {
+                    result.notImplemented()
+                }
+            })
             
-            result.success(true)
         } catch (e: Exception) {
-            Log.e(TAG, "Errore nell'avvio del monitoraggio: ${e.message}", e)
-            logRepository.addLog("ERRORE nell'avvio del monitoraggio: ${e.message}")
-            result.error("START_MONITORING_ERROR", "Errore nell'avvio del monitoraggio: ${e.message}", null)
+            Log.e(TAG, "Errore nell'avvio del monitoraggio completo: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'avvio del monitoraggio completo: ${e.message}")
+            result.error("START_COMPLETE_MONITORING_ERROR", "Errore nell'avvio del monitoraggio completo: ${e.message}", null)
         }
     }
 
-    // Nel plugin, aggiungi un metodo per verificare e richiedere l'esclusione
-    fun checkBatteryOptimization() {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-          val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-          if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
-              // Richiedi all'utente di disattivare l'ottimizzazione della batteria
-              if (activity != null) {
-                  val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                  intent.data = Uri.parse("package:${context.packageName}")
-                  activity?.startActivity(intent)
-              }
-          }
-      }
-    }
-
+    // Modifica anche stopMonitoring per chiarire che ferma TUTTO:
     private fun stopMonitoring(result: Result) {
         try {
-            Log.d(TAG, "Arresto monitoraggio beacon")
-            logRepository.addLog("Arresto monitoraggio beacon")
-             // Cancellare l'allarme per il riavvio periodico
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(context, BeaconMonitoringService::class.java)
-        val pendingIntent = PendingIntent.getService(
-            context,
-            0,
-            intent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-        )
-
-        alarmManager.cancel(pendingIntent)
-        pendingIntent.cancel()
-        
-        logRepository.addLog("Allarme per il riavvio del servizio cancellato")
-            // Ferma il ranging e il monitoraggio
-            if (::activeRegion.isInitialized) {
-                beaconManager.stopRangingBeaconsInRegion(activeRegion)
-                beaconManager.stopMonitoringBeaconsInRegion(activeRegion)
-                Log.d(TAG, "Ranging e monitoraggio fermati nella regione: ${activeRegion.uniqueId}")
-                logRepository.addLog("Ranging e monitoraggio fermati nella regione: ${activeRegion.uniqueId}")
-            } else {
-                // Se non abbiamo una regione attiva, ferma tutto
-                beaconManager.rangedRegions.forEach { region ->
-                    beaconManager.stopRangingBeaconsInRegion(region)
-                }
-                beaconManager.monitoredRegions.forEach { region ->
-                    beaconManager.stopMonitoringBeaconsInRegion(region)
-                }
-                Log.d(TAG, "Fermati tutti i ranging e monitoraggi")
-                logRepository.addLog("Fermati tutti i ranging e monitoraggi")
-            }
+            Log.d(TAG, "Arresto monitoraggio COMPLETO (foreground + background)")
+            logRepository.addLog("Arresto monitoraggio COMPLETO (foreground + background)")
             
-            // Aggiorna lo stato di monitoraggio
-            PreferenceUtils.setMonitoringEnabled(context, false)
-            beaconBootstrapper?.stopBootstrapping()
-
-            // Ferma il servizio in foreground
-            val serviceIntent = Intent(context, BeaconMonitoringService::class.java)
-            context.stopService(serviceIntent)
-            logRepository.addLog("Servizio di monitoraggio fermato")
+            // Prima ferma il monitoraggio foreground
+            stopForegroundMonitoringOnly(object : Result {
+                override fun success(foregroundResult: Any?) {
+                    // Poi ferma il servizio background
+                    stopBackgroundService(object : Result {
+                        override fun success(backgroundResult: Any?) {
+                            val overallSuccess = (foregroundResult == true) && (backgroundResult == true)
+                            Log.d(TAG, "Monitoraggio completo fermato: foreground=${foregroundResult}, background=${backgroundResult}, overall=${overallSuccess}")
+                            logRepository.addLog("Monitoraggio completo fermato: foreground=${foregroundResult}, background=${backgroundResult}")
+                            result.success(overallSuccess)
+                        }
+                        
+                        override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                            Log.e(TAG, "Errore arresto background durante stop completo: $errorMessage")
+                            logRepository.addLog("ERRORE arresto background durante stop completo: $errorMessage")
+                            // Anche se il background fallisce, il foreground è stato fermato
+                            result.success(true)
+                        }
+                        
+                        override fun notImplemented() {
+                            result.notImplemented()
+                        }
+                    })
+                }
+                
+                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
+                    result.error(errorCode, errorMessage, errorDetails)
+                }
+                
+                override fun notImplemented() {
+                    result.notImplemented()
+                }
+            })
             
-            result.success(true)
         } catch (e: Exception) {
-            Log.e(TAG, "Errore nell'arresto del monitoraggio: ${e.message}", e)
-            logRepository.addLog("ERRORE nell'arresto del monitoraggio: ${e.message}")
-            result.error("STOP_MONITORING_ERROR", "Errore nell'arresto del monitoraggio: ${e.message}", null)
+            Log.e(TAG, "Errore nell'arresto del monitoraggio completo: ${e.message}", e)
+            logRepository.addLog("ERRORE nell'arresto del monitoraggio completo: ${e.message}")
+            result.error("STOP_COMPLETE_MONITORING_ERROR", "Errore nell'arresto del monitoraggio completo: ${e.message}", null)
         }
     }
 
@@ -1183,27 +1322,83 @@ private fun requestExactAlarmPermission(result: Result) {
     }
 }
 
-  private fun requestPermissions(result: Result) {
-      if (activity != null) {
-          try {
-              Log.d(TAG, "Richiesta permessi")
-              logRepository.addLog("Richiesta permessi")
-              
-              // Nota: Flutter gestisce la richiesta dei permessi tramite la libreria permission_handler
-              // Qui possiamo solo verificare lo stato attuale
-              checkPermissions(result)
-          } catch (e: Exception) {
-              Log.e(TAG, "Errore nella richiesta dei permessi: ${e.message}", e)
-              logRepository.addLog("ERRORE nella richiesta dei permessi: ${e.message}")
-              result.error("PERMISSION_REQUEST_ERROR", "Errore nella richiesta dei permessi: ${e.message}", null)
-          }
-      } else {
-          Log.e(TAG, "Activity non disponibile per la richiesta dei permessi")
-          logRepository.addLog("Activity non disponibile per la richiesta dei permessi")
-          result.error("ACTIVITY_UNAVAILABLE", "Activity necessaria per richiedere i permessi", null)
-      }
-  }
-
+private fun requestPermissions(result: Result) {
+    if (activity != null) {
+        try {
+            Log.d(TAG, "Richiesta permessi")
+            logRepository.addLog("Richiesta permessi")
+            
+            // Su Android, Flutter gestisce la richiesta dei permessi tramite la libreria permission_handler
+            // Qui restituiamo lo stato attuale dei permessi dopo aver verificato la situazione
+            
+            val permissionsMap = mutableMapOf<String, Boolean>()
+            
+            // Controlla i permessi di localizzazione
+            permissionsMap["location"] = ContextCompat.checkSelfPermission(
+                context, 
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            
+            // Controlla i permessi Bluetooth per Android 12+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                permissionsMap["bluetoothScan"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.BLUETOOTH_SCAN
+                ) == PackageManager.PERMISSION_GRANTED
+                
+                permissionsMap["bluetoothConnect"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                permissionsMap["bluetoothScan"] = true
+                permissionsMap["bluetoothConnect"] = true
+            }
+            
+            // Controlla i permessi di notifica per Android 13+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                permissionsMap["notifications"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                permissionsMap["notifications"] = true
+            }
+            
+            // Controlla il permesso di localizzazione in background per Android 10+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                permissionsMap["backgroundLocation"] = ContextCompat.checkSelfPermission(
+                    context, 
+                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                permissionsMap["backgroundLocation"] = true
+            }
+            
+            // Determina se tutti i permessi essenziali sono concessi
+            val location = permissionsMap["location"] ?: false
+            val bluetoothScan = permissionsMap["bluetoothScan"] ?: false
+            val bluetoothConnect = permissionsMap["bluetoothConnect"] ?: false
+            
+            val allEssentialGranted = location && bluetoothScan && bluetoothConnect
+            
+            Log.d(TAG, "Stato permessi: location=$location, bluetoothScan=$bluetoothScan, bluetoothConnect=$bluetoothConnect, allGranted=$allEssentialGranted")
+            logRepository.addLog("Stato permessi: location=$location, bluetooth=$bluetoothScan/$bluetoothConnect, granted=$allEssentialGranted")
+            
+            // Restituisce un bool che indica se tutti i permessi essenziali sono concessi
+            result.success(allEssentialGranted)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella richiesta dei permessi: ${e.message}", e)
+            logRepository.addLog("ERRORE nella richiesta dei permessi: ${e.message}")
+            result.error("PERMISSION_REQUEST_ERROR", "Errore nella richiesta dei permessi: ${e.message}", null)
+        }
+    } else {
+        Log.e(TAG, "Activity non disponibile per la richiesta dei permessi")
+        logRepository.addLog("Activity non disponibile per la richiesta dei permessi")
+        result.error("ACTIVITY_UNAVAILABLE", "Activity necessaria per richiedere i permessi", null)
+    }
+}
   private fun isBatteryOptimizationIgnored(result: Result) {
       try {
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

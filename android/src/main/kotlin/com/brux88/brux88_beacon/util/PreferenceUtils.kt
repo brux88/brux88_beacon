@@ -27,7 +27,27 @@ object PreferenceUtils {
     private const val DEFAULT_MAX_TRACKING_AGE: Long = 5000
     private const val KEY_PENDING_RESTART = "pending_restart"
     private const val KEY_SHOW_DETECTION_NOTIFICATIONS = "show_detection_notifications"
+    private const val KEY_FOREGROUND_MONITORING_ENABLED = "foreground_monitoring_enabled"
     private const val KEY_BACKGROUND_SERVICE_ENABLED = "background_service_enabled"
+
+
+     /**
+     * Abilita/disabilita il monitoraggio foreground
+     */
+    fun setForegroundMonitoringEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_FOREGROUND_MONITORING_ENABLED, enabled).apply()
+    }
+
+    /**
+     * Controlla se il monitoraggio foreground è abilitato
+     */
+    fun isForegroundMonitoringEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_FOREGROUND_MONITORING_ENABLED, false)
+    }
+    
+    /**
+     * Abilita/disabilita il servizio background
+     */
     fun setBackgroundServiceEnabled(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_BACKGROUND_SERVICE_ENABLED, enabled).apply()
     }
@@ -60,21 +80,24 @@ object PreferenceUtils {
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
-
-    /**
-     * Salva lo stato del monitoraggio
-     */
+    
     fun setMonitoringEnabled(context: Context, enabled: Boolean) {
+        // Per compatibilità, imposta entrambi
+        setForegroundMonitoringEnabled(context, enabled)
+        setBackgroundServiceEnabled(context, enabled)
+        // Mantieni anche il flag originale
         getPrefs(context).edit().putBoolean(KEY_MONITORING_ENABLED, enabled).apply()
     }
+    
 
     /**
      * Verifica se il monitoraggio è abilitato
      */
     fun isMonitoringEnabled(context: Context): Boolean {
-        return getPrefs(context).getBoolean(KEY_MONITORING_ENABLED, false)
+        val foregroundEnabled = isForegroundMonitoringEnabled(context)
+        val backgroundEnabled = isBackgroundServiceEnabled(context)
+        return foregroundEnabled || backgroundEnabled
     }
-
     /**
      * Imposta la durata della scansione in background (millisecondi)
      */
