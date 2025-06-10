@@ -81,10 +81,14 @@ class LogRepository(private val context: Context) {
                     }
                 }
 
+                // FIX: Usa Collections.reverse() invece di reversed() per compatibilità Android 8.0
+                logList.reverse()
+                
                 // Aggiorna la LiveData con i log recuperati (dal più recente al più vecchio)
-                _logs.postValue(logList.reversed())
+                _logs.postValue(logList)
             } catch (e: Exception) {
                 Log.e(TAG, "Errore nel caricamento dei log: ${e.message}")
+                _logs.postValue(emptyList())
             }
         }
     }
@@ -109,11 +113,14 @@ class LogRepository(private val context: Context) {
             Log.e(TAG, "Errore nella rimozione del log più vecchio: ${e.message}")
         }
     }
+
+    /**
+     * Ottiene tutti i log correnti (thread-safe)
+     */
     fun getCurrentLogs(): List<String> {
-        val logList = mutableListOf<String>()
-        
-        try {
+        return try {
             val logCount = sharedPrefs.getInt(LOG_COUNT_KEY, 0)
+            val logList = mutableListOf<String>()
             
             for (i in 0 until logCount) {
                 val logEntry = sharedPrefs.getString("$LOG_KEY_PREFIX$i", null)
@@ -122,13 +129,15 @@ class LogRepository(private val context: Context) {
                 }
             }
             
-            // Restituisci i log dal più recente al più vecchio
-            return logList.reversed()
+            // FIX: Usa Collections.reverse() invece di reversed() per compatibilità Android 8.0
+            logList.reverse()
+            return logList
         } catch (e: Exception) {
             Log.e(TAG, "Errore nel recupero dei log: ${e.message}")
-            return emptyList()
+            emptyList()
         }
     }
+
     /**
      * Cancella tutti i log
      */

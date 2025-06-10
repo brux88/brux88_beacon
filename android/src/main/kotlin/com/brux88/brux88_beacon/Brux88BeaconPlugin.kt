@@ -47,7 +47,7 @@ import android.bluetooth.BluetoothAdapter
 import com.brux88.brux88_beacon.util.NotificationUtils
 import org.altbeacon.beacon.BeaconConsumer
 import android.content.ServiceConnection
-
+ 
 class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, RangeNotifier, BeaconConsumer  {
     private val TAG = "Brux88BeaconPlugin"
     private var beaconBootstrapper: BeaconBootstrapper? = null
@@ -291,10 +291,6 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                     val enabled = call.arguments as? Boolean ?: false
                     setAutoRestartEnabled(enabled, result)
                 }
-                "setAutoRestartEnabled" -> {
-                    val enabled = call.arguments as? Boolean ?: false
-                    setAutoRestartEnabled(enabled, result)
-                }
                 "isAutoRestartEnabled" -> {
                     isAutoRestartEnabled(result)
                 }               
@@ -308,6 +304,9 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             result.error("INTERNAL_ERROR", "Si è verificato un errore interno: ${e.message}", null)
         }
     }
+
+ 
+
     private fun setupRecurringAlarmInternal() {
         try {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -385,8 +384,9 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 // Se abilitato, imposta tutti i meccanismi di riavvio
                 logRepository.addLog("AUTO-RESTART: Abilitazione meccanismi di riavvio")
                 
-                // Abilita il watchdog
+                // Abilita il watchdog INTERNAMENTE
                 PreferenceUtils.setWatchdogEnabled(context, true)
+                setupServiceWatchdogInternal() // Usa il metodo interno
                 
                 // Imposta l'allarme ricorrente se il monitoraggio è attivo
                 if (PreferenceUtils.isMonitoringEnabled(context) || PreferenceUtils.isBackgroundServiceEnabled(context)) {
@@ -397,15 +397,16 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
                 // Se disabilitato, ferma tutti i meccanismi di riavvio
                 logRepository.addLog("AUTO-RESTART: Disabilitazione meccanismi di riavvio")
                 
-                // Disabilita il watchdog
+                // Disabilita il watchdog INTERNAMENTE
                 PreferenceUtils.setWatchdogEnabled(context, false)
+                cancelServiceWatchdogInternal() // Usa il metodo interno
                 
                 // Cancella l'allarme ricorrente
                 cancelRecurringAlarmInternal()
             }
             
             logRepository.addLog("AUTO-RESTART: ${if (enabled) "abilitato" else "disabilitato"}")
-            result.success(true)
+            result.success(true) // UNA SOLA chiamata a result
         } catch (e: Exception) {
             Log.e(TAG, "Errore nell'impostazione auto-restart: ${e.message}", e)
             logRepository.addLog("ERRORE AUTO-RESTART: ${e.message}")
@@ -417,21 +418,57 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             PreferenceUtils.setWatchdogEnabled(context, enabled)
             
             if (enabled) {
-                // Imposta il watchdog se abilitato
-                setupServiceWatchdog(result)
+                // Imposta il watchdog se abilitato - NON passare result!
+                setupServiceWatchdogInternal() // Rinominato per essere interno
             } else {
-                // Cancella il watchdog se disabilitato
-                cancelServiceWatchdog(result)
+                // Cancella il watchdog se disabilitato - NON passare result!
+                cancelServiceWatchdogInternal() // Rinominato per essere interno
             }
             
             logRepository.addLog("Watchdog servizio ${if (enabled) "abilitato" else "disabilitato"}")
-            result.success(true)
+            result.success(true) // UNA SOLA chiamata a result
         } catch (e: Exception) {
+            logRepository.addLog("ERRORE watchdog: ${e.message}")
             result.error("WATCHDOG_ERROR", "Errore nell'impostazione watchdog: ${e.message}", null)
         }
     }
+    private fun setupServiceWatchdogInternal() {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val intent = Intent(context, ServiceWatchdogReceiver::class.java)
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                0,
+                intent,
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
+            )
 
-    private fun cancelServiceWatchdog(result: Result) {
+            // Controlla ogni 30 minuti
+            val interval = 30 * 60 * 1000L
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + interval,
+                    pendingIntent
+                )
+            }
+            
+            logRepository.addLog("Watchdog per il servizio configurato")
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore nella configurazione del watchdog: ${e.message}", e)
+            logRepository.addLog("ERRORE nella configurazione del watchdog: ${e.message}")
+            throw e // Rilancia l'eccezione per gestirla nel metodo chiamante
+        }
+    }
+
+    private fun cancelServiceWatchdogInternal() {
         try {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
             val intent = Intent(context, ServiceWatchdogReceiver::class.java)
@@ -446,12 +483,13 @@ class Brux88BeaconPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, Range
             pendingIntent.cancel()
             
             logRepository.addLog("Watchdog per il servizio cancellato")
-            result.success(true)
         } catch (e: Exception) {
             Log.e(TAG, "Errore nella cancellazione del watchdog: ${e.message}", e)
-            result.error("WATCHDOG_CANCEL_ERROR", "Errore nella cancellazione del watchdog: ${e.message}", null)
+            logRepository.addLog("ERRORE nella cancellazione del watchdog: ${e.message}")
+            throw e // Rilancia l'eccezione per gestirla nel metodo chiamante
         }
     }
+ 
 
 
     private fun setAutoStartEnabled(enabled: Boolean, result: Result) {
@@ -1119,42 +1157,24 @@ private fun startForegroundMonitoringOnlyInternal(result: Result) {
           result.error("LOGS_ERROR", "Errore nel recupero dei log: ${e.message}", null)
       }
   }
-  private fun setupServiceWatchdog(result: Result) {
+    private fun setupServiceWatchdog(result: Result) {
         try {
-            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-            val intent = Intent(context, ServiceWatchdogReceiver::class.java)
-            val pendingIntent = PendingIntent.getBroadcast(
-                context,
-                0,
-                intent,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0
-            )
-
-            // Controlla ogni 30 minuti
-            val interval = 30 * 60 * 1000L
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    System.currentTimeMillis() + interval,
-                    pendingIntent
-                )
-            } else {
-                alarmManager.setExact(
-                    AlarmManager.RTC_WAKEUP,
-                    System.currentTimeMillis() + interval,
-                    pendingIntent
-                )
-            }
-            
-            logRepository.addLog("Watchdog per il servizio configurato")
+            setupServiceWatchdogInternal()
             result.success(true)
         } catch (e: Exception) {
-            Log.e(TAG, "Errore nella configurazione del watchdog: ${e.message}", e)
-            logRepository.addLog("ERRORE nella configurazione del watchdog: ${e.message}")
             result.error("WATCHDOG_ERROR", "Errore nella configurazione del watchdog: ${e.message}", null)
         }
     }
+
+    private fun cancelServiceWatchdog(result: Result) {
+        try {
+            cancelServiceWatchdogInternal()
+            result.success(true)
+        } catch (e: Exception) {
+            result.error("WATCHDOG_CANCEL_ERROR", "Errore nella cancellazione del watchdog: ${e.message}", null)
+        }
+    }
+
  
     // Implementazione di RangeNotifier
     override fun didRangeBeaconsInRegion(beacons: Collection<Beacon>, region: Region) {

@@ -4,6 +4,37 @@ All notable changes to the Brux88 Beacon plugin will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.1.6] - 2025-05-26
+🔧 Critical Fixes
+
+- **FIXED**: "Fatal Exception: java.lang.NoSuchMethodError" crash: Android 8.0
+
+## [0.1.5] - 2025-05-26
+🔧 Critical Fixes
+
+- **FIXED**: "Reply already submitted" crash: Resolved fatal error that occurred when starting the app in release mode
+
+- Removed duplicate setAutoRestartEnabled method call in onMethodCall
+- Fixed recursive calls in watchdog methods that caused multiple Result responses
+- Added SafeMethodResult wrapper to prevent duplicate responses to Flutter
+- Improved error handling in method channel communications
+
+
+
+- 🛡️ **Stability Improvements**
+
+- **Enhanced Error Recovery**: Added automatic recovery mechanisms for common failure scenarios
+
+- Bluetooth state recovery with automatic retry
+- Service restart recovery for crashed background services
+- Permission validation before critical operations
+
+
+- State Management: Implemented proper plugin state tracking to prevent race conditions
+
+- Added PluginState enum for better state management
+- Implemented AsyncOperationManager for safe async operations
+- Added state validation before executing operations
 
 ## [0.1.4] - 2025-01-23
 
